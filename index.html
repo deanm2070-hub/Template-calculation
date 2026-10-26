@@ -54,9 +54,12 @@ button,input,select,textarea{font:inherit;color:inherit}
   transition:opacity .7s ease, visibility .7s}
 #splash.out{opacity:0;visibility:hidden}
 /* 橫向寬螢幕（電腦）：直式背景圖放大後標誌、標題過大，改用純色底＋自己畫的白點，標誌縮小置中，與鋼筋工程估算首頁相同 */
-#splash.wide{background:radial-gradient(ellipse at 50% 45%,#2a3cb4 0%,#1f2f9c 45%,#17257f 100%)}
+#splash.wide{background:radial-gradient(ellipse at 50% 45%,#3b40d6 0%,#2b30c2 45%,#2026a6 100%)}
 #spLogo{display:none;position:absolute;left:50%;transform:translateX(-50%);pointer-events:none;filter:drop-shadow(0 6px 18px rgba(0,0,30,.45))}
 #splash.wide #spLogo{display:block}
+#splash.wide .sp-title{font-weight:600;letter-spacing:.22em;text-shadow:0 2px 10px rgba(0,0,20,.35)}
+#splash.wide .sp-sub{font-weight:500;letter-spacing:.3em;color:rgba(235,240,255,.9)}
+#splash.wide .sp-hint{bottom:auto;font-size:13px;letter-spacing:.2em}
 html.sp,html.sp body{background:#1d2a8c}
 #dots{position:absolute;inset:0;width:100%;height:100%}
 /* 標題疊在背景圖原本標題的位置（依圖的縮放比例由 JS 設定位置與字級） */
@@ -2252,13 +2255,13 @@ function download(name,data,type){const a=document.createElement('a');a.href=URL
     sp.style.height=Math.max(innerHeight,document.documentElement.clientHeight,sh||0)+'px';const h=sp.querySelector('.sp-hint');if(h)h.style.bottom='calc(env(safe-area-inset-bottom,0px) + 30px)'}
   function layout(){
     fit();const r=sp.getBoundingClientRect();W=r.width;H=r.height;dpr=window.devicePixelRatio||1;cv.width=W*dpr;cv.height=H*dpr;
-    wide=W>H*1.05;sp.classList.toggle('wide',wide);
+    wide=W>H*1.05;sp.classList.toggle('wide',wide);if(!wide){const hn=sp.querySelector('.sp-hint');if(hn){hn.style.top='';hn.textContent='點擊任意處進入'}}
     if(wide){// 白點格：橫向每格約 1/26 寬；標誌高約 0.17 畫面高，標題在標誌下方
-      const gx=W/26,gy=gx,nx=Math.ceil(W/gx)+1,ny=Math.ceil(H/gy)+1,lh=H*0.17,ly=H*0.30,fs=Math.min(H*0.062,W/14),fu=fs*0.3;
-      const lg=$('#spLogo'),t=$('#spT'),u=$('#spS');lg.style.height=lh+'px';lg.style.top=ly+'px';
-      t.style.fontSize=fs+'px';t.style.top=(ly+lh+H*0.06)+'px';u.style.fontSize=fu+'px';u.style.top=(ly+lh+H*0.06+fs*1.35)+'px';
-      const hideW=(x,y)=>x>W/2-fs*4.6&&x<W/2+fs*4.6&&y>ly-gy*0.5&&y<ly+lh+H*0.06+fs*2.2;
-      dots=[];for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){const x=gx/2+i*gx,y=gy/2+j*gy;if(hideW(x,y))continue;dots.push({x,y,r:gx*0.075,f:0,fd:0})}
+      // 版面照鋼筋工程估算首頁：標誌高約 0.13 畫面高、頂在 0.325；標題 0.042、副標 0.017、提示在 0.68；白點格不因文字而缺
+      const gx=W/27,gy=gx,nx=Math.ceil(W/gx)+1,ny=Math.ceil(H/gy)+1,lh=H*0.13,ly=H*0.325,fs=Math.min(H*0.042,W/18),fu=fs*0.4;
+      const lg=$('#spLogo'),t=$('#spT'),u=$('#spS'),hn=sp.querySelector('.sp-hint');lg.style.height=lh+'px';lg.style.top=ly+'px';
+      t.style.fontSize=fs+'px';t.style.top=(H*0.55-fs/2)+'px';u.style.fontSize=fu+'px';u.style.top=(H*0.605-fu/2)+'px';if(hn){hn.style.top=H*0.68+'px';hn.textContent='點任意處進入'}
+      dots=[];for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){const x=gx/2+i*gx,y=gy/2+j*gy;if(Math.hypot(x-W/2,y-(ly+lh/2))<lh*0.55)continue;dots.push({x,y,r:gx*0.07,f:0,fd:0})}
       return}
     const sc=Math.max(W/IW,H/IH),ox=(W-IW*sc)/2,oy=(H-IH*sc)/2;
     dots=[];for(let j=0;j<13;j++)for(let i=0;i<7;i++){const ix=72+176.5*i,iy=155.5+177*j;if(hide(ix,iy))continue;const x=ox+ix*sc,y=oy+iy*sc;if(x<-20||y<-20||x>W+20||y>H+20)continue;
@@ -2286,7 +2289,7 @@ function download(name,data,type){const a=document.createElement('a');a.href=URL
 })();
 
 /* 新版本提示：網站版才有，按「更新」才重新載入 */
-const BUILD='20261026170155';
+const BUILD='20261026170933';
 function checkUpdate(){
   if(!BUILD||BUILD.startsWith('__')||!/^https?:/.test(location.protocol))return;
   fetch('version.json?t='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{
