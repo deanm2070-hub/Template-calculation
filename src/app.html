@@ -822,7 +822,7 @@ function readStairs(ents,unit){
   const T=ents.texts,u=unit;
   const tt=T.filter(t=>/樓梯剖面/.test(t.s)&&Math.abs(((t.rot||0)%360+360)%360)<1).sort((a,b)=>b.h-a.h)[0];if(!tt)return null;
   const num=(re)=>{const t=T.find(t=>re.test(t.s));if(!t)return null;const m=t.s.match(re);let v=+m[1];return v>=1?v/100:v};
-  const rH=num(/級高[^0-9]{0,8}(\d+(?:\.\d+)?)/),tD=num(/級深[^0-9]{0,8}(\d+(?:\.\d+)?)/),W=num(/樓梯淨寬[^0-9]{0,12}(\d+(?:\.\d+)?)/);
+  const rH=num(/級高[^0-9]{0,8}(\d+(?:\.\d+)?)/),tD=num(/級深[^0-9]{0,8}(\d+(?:\.\d+)?)/),W=num(/樓梯淨寬[^0-9]{0,12}(\d+(?:\.\d+)?)/);const Wp=num(/平[臺台]淨寬[^0-9]{0,12}(\d+(?:\.\d+)?)/);
   // 樓層標高：在剖面圖名上方 60m、左右 30m 內
   const FL=/^(B\d+F|\d+F|R\d*F|RF|PR\d*F?)$/i,EL=/^([±+\-])\s*(\d+(?:\.\d+)?)$/;
   const near=t=>Math.abs(t.x-tt.x)*u<30&&(t.y-tt.y)*u>-2&&(t.y-tt.y)*u<80;
@@ -853,7 +853,7 @@ function readStairs(ents,unit){
   // 剖面上有些踏步與平台線相連而沒被辨識：階數取 max(辨識到的級數, 該層高度 ÷ 級高)
   const out=[];fl.forEach((f,i)=>{if(!f.soffit.length&&!f.risers)return;const dy=L[i+1]?L[i+1].y-L[i].y:0;const k=Math.max(f.risers,dy>0?Math.round(dy/rmed):0);
     out.push({name:f.name,k,soffit:f.soffit})});
-  return out.length?{rH:Math.round(rmed*1000)/1000,tD:tD||0.21,W:W||null,fl:out}:null;
+  return out.length?{rH:Math.round(rmed*1000)/1000,tD:tD||0.21,W:W||null,Wp:Wp||W||null,fl:out}:null;
 }
 /* 平面圖上的樓梯數：同一張平面圖內「UP」註記的個數（8m 內視為同一張圖），取最常見值 */
 function countStairs(ents,unit){
@@ -919,6 +919,10 @@ function memCalc(m,P){
     const h2=num(m.h2,0)||h,hs=r2(h-rt-t1),hs2=r2(h2-rt-t1),hc=Math.max(hs,hs2),sd=m.edge?1:2;
     form=(sd===2?hs+hs2:hs)*L*n-ded;conc=b*hc*L*n;
     ft=(sd===2&&h2!==h?`(${fe(h)}+${fe(h2)})`:`${sd}×${fe(h)}`)+`×${fm(L)}${nn}`;ct=`${fm(b)}×${fm(hc)}×${fm(L)}${nn}`;if(ded)ft+=` − ${fm(ded)}`}}
+  else if(m.kind==='landing'){
+    // 樓梯平台底模：寬×深×處數×樓梯數；混凝土再乘版厚
+    const k=num(m.k,1),ns=num(m.n,stairN(P)),nn=ns!==1?'×'+ns:'';form=b*L*k*ns-ded;conc=b*L*ts*k*ns;
+    ft=`${fm(b)}×${fm(L)}×${k}${nn}`+(ded?` − ${fm(ded)}`:'');ct=`${fm(b)}×${fm(L)}×${fm(ts)}×${k}${nn}`}
   else if(m.kind==='pit'){
     // 加深區：坑外框擴到周圍地樑外緣（W×H），扣掉坑內（坑底基礎版已含在基礎版內），梁下加深 d；外圍 1:1 土坡斜面：周長×d²/2 ＋ 四角 4×d³/3
     const W=num(m.W,0),H=num(m.H,0),Ai=num(m.Ai,0),d=num(m.d,0),band=r2(W*H-Ai),Pm=2*(W+H);conc=band*d+Pm*d*d/2+4*d*d*d/3;ft='—';
@@ -1015,8 +1019,9 @@ function applyRecog(P,d,R){
   const hold=[],holdS=[],wraw=[],isF=f=>/^(F|基礎)$/.test(f),tsD=num(d.slabT,num(P.slabT,0.15));
   floors.forEach(f=>{
     const on=e=>flOf(e).includes(f);
-    // 基礎層：基礎及一層結構平面上的 1 樓樓版（地樑之間）要組底模，歸在 F 層的版；混凝土已算在「1樓地板」，這裡不重複。F 開頭（基礎版）不組模
-    R.slabs.filter(on).filter(s=>!isF(f)||!/^F/i.test(s.code)).sort((a,b)=>a.code.localeCompare(b.code)||(b.pts[0][1]-a.pts[0][1])).forEach(s=>{const o={id:uid(),bldg:d.bldg,floor:f,code:s.code,no:nextNo(P),t:s.t,orig:s.orig,seal:s.seal,wall:s.wall,col:s.col,src:d.id,geo:s.geo,...(isF(f)?{noConc:true}:{})};if(d.kind==='arch')holdS.push(o);else P.slabs.push(o)});
+    // 基礎層：基礎及一層結構平面上的 1 樓樓版（地樑之間）要組底模，歸在 F 層的版；混凝土已算在「1樓地板」，這裡不重複。
+    // FS 基礎版不組模；FCS 懸臂版在基礎版外，模板、混凝土都算
+    R.slabs.filter(on).filter(s=>!isF(f)||!/^F(?!C)/i.test(s.code)).sort((a,b)=>a.code.localeCompare(b.code)||(b.pts[0][1]-a.pts[0][1])).forEach(s=>{const o={id:uid(),bldg:d.bldg,floor:f,code:s.code,no:nextNo(P),t:s.t,orig:s.orig,seal:s.seal,wall:s.wall,col:s.col,src:d.id,geo:s.geo,...(isF(f)&&!/^FC/i.test(s.code)?{noConc:true}:{})};if(d.kind==='arch')holdS.push(o);else P.slabs.push(o)});
     const grp=new Map();
     if(!isF(f))R.cols.filter(on).forEach(c=>{const key=`${c.code}|${c.shape}|${c.b}|${c.h}|${c.pos||''}`;if(!grp.has(key))grp.set(key,{type:'柱',code:c.code,shape:c.shape,b:c.b,h:c.h,pos:c.pos||'',n:0,geo:[],jt:{}});const g=grp.get(key);g.n++;
       (c.jt||[]).forEach(([bw,bh])=>{const hs=r2(bh-tsD);if(hs<=0)return;const kk=fm(bw)+'×'+fm(hs);g.jt[kk]=(g.jt[kk]||0)+1});g.geo.push(c.c.map(v=>v*d.unit));(g.shp=g.shp||[]).push(c.pts.map(q=>[q[0]*d.unit,q[1]*d.unit]))});
@@ -1034,7 +1039,9 @@ function applyRecog(P,d,R){
   });
   // 樓梯（依樓梯剖面圖）：算在牆的數量；1 樓 = 1FL～2FL 之間的梯段
   (d.stairs?.fl||[]).forEach(st=>{let f=normFloor(st.name,P.floors);if(!f){const pf=parseFloors(st.name);if(pf.length!==1)return;ensureFloors(P,pf);f=pf[0]}
-    P.members.push({id:uid(),bldg:d.bldg,floor:f,src:d.id,type:'牆',kind:'stair',code:'樓梯',pos:st.k+' 階',b:d.stairs.W||0.8,L:r2(st.soffit.reduce((a,x)=>a+x,0)),Lf:st.soffit.map(fm).join('+'),h:d.stairs.rH,k:st.k,td:d.stairs.tD,n:null})});
+    P.members.push({id:uid(),bldg:d.bldg,floor:f,src:d.id,type:'牆',kind:'stair',code:'樓梯',pos:st.k+' 階',b:d.stairs.W||0.8,L:r2(st.soffit.reduce((a,x)=>a+x,0)),Lf:st.soffit.map(fm).join('+'),h:d.stairs.rH,k:st.k,td:d.stairs.tD,n:null});
+    // 樓梯平台：每段梯接一個平台（中間平台＋到樓層的平台），寬 = 2×梯寬、深 = 平台淨寬；算在版
+    const W=d.stairs.W||0.8;if(st.soffit.length)P.members.push({id:uid(),bldg:d.bldg,floor:f,src:d.id,type:'其他',kind:'landing',code:'樓梯平台',b:r2(2*W),L:d.stairs.Wp||W,k:st.soffit.length,n:null,fx:'',cx:''})});
   d.hold=hold;d.holdS=holdS;d.wraw=wraw;
   d.floors=floors;
   reconcile(P);
@@ -1323,7 +1330,7 @@ function viewMem(p){
     <td>${o?'':m.kind==='stair'?`<input class="w4 num" type="number" step="1" data-mk="n" value="${esc(m.n??'')}" placeholder="${stairN(p)}">`:inp(m,'n','w4','1')}</td>
     <td>${m.type==='梁'?`<input type="checkbox" data-mk="edge"${m.edge?' checked':''} aria-label="外側邊梁">`:m.type==='柱'?`<input type="checkbox" data-mk="shape"${m.shape==='circle'?' checked':''} aria-label="圓柱">`:''}</td>
     <td>${o?'':inp(m,'ded')}</td><td>${m.type==='牆'&&!m.kind?inp(m,'open'):''}</td>
-    ${m.kind==='stair'?`<td>級深 ${inp(m,'td')}</td><td class="num">${esc(c.ct)}</td>`:m.kind?`<td>面積 ${inp(m,'A','w6')}</td><td class="num">${esc(c.ct)}</td>`:`<td>${o?`<input class="w10 num" type="text" data-mk="fx" value="${esc(m.fx||'')}">`:''}</td><td>${o?`<input class="w10 num" type="text" data-mk="cx" value="${esc(m.cx||'')}">`:''}</td>`}
+    ${m.kind==='landing'?`<td>寬 ${inp(m,'b')} 深 ${inp(m,'L')} ${inp(m,'k','w4','1')} 處 ×<input class="w4 num" type="number" step="1" data-mk="n" value="${esc(m.n??'')}" placeholder="${stairN(p)}"> 座</td><td class="num">${esc(c.ct)}</td>`:m.kind==='stair'?`<td>級深 ${inp(m,'td')}</td><td class="num">${esc(c.ct)}</td>`:m.kind?`<td>面積 ${inp(m,'A','w6')}</td><td class="num">${esc(c.ct)}</td>`:`<td>${o?`<input class="w10 num" type="text" data-mk="fx" value="${esc(m.fx||'')}">`:''}</td><td>${o?`<input class="w10 num" type="text" data-mk="cx" value="${esc(m.cx||'')}">`:''}</td>`}
     <td class="r num" data-out="form"><b>${f2(c.form)}</b></td><td class="r num" data-out="conc">${f2(c.conc)}</td>
     <td>${m.src==='man'?'<span class="pill man">手動</span>':m.held?'<span class="pill warn" title="該層尚無結構圖，暫用建築圖">建築圖</span>':'<span class="pill dxf">DXF</span>'}</td>
     <td><div class="row" style="flex-wrap:nowrap;gap:4px"><button class="btn sm" data-act="gmem" data-id="${m.id}">導引</button><button class="btn sm danger" data-act="delmem" data-id="${m.id}" aria-label="刪除">刪</button></div></td></tr>`}).join('')||`<tr><td colspan="19"><div class="empty">沒有構件。</div></td></tr>`}</tbody></table></div></div>`;
@@ -1382,7 +1389,7 @@ function viewSum(p){
   <div class="row" style="justify-content:space-between"><div class="row"><label class="small muted" for="sumB">棟別</label><select id="sumB" data-filter="sumB"><option value="">全部棟別</option>${opts(p.bldgs,b)}</select></div>
   <div class="row"><button class="btn" data-act="copysum">複製兩張總表（貼到 Excel）</button>${standalone?'<button class="btn" data-act="print">列印</button>':''}</div></div>
   ${tbl('form','m²','模板分層數量統計總表')}${tbl('conc','m³','混凝土分層數量統計總表')}
-  <p class="muted small">每層範圍＝本層樓板面到上一層樓板面：本層的柱、牆，加上上一層樓板的梁（側模、底模）與版底模；例如 1 樓＝1FL～2FL，基礎層＝地樑、基礎版，加上 1FL 樓板底模（地樑之間的版）。樓梯（斜底版＋踏步立面）依樓梯剖面圖算在牆。</p>
+  <p class="muted small">每層範圍＝本層樓板面到上一層樓板面：本層的柱、牆，加上上一層樓板的梁（側模、底模）與版底模；例如 1 樓＝1FL～2FL，基礎層＝地樑、基礎版，加上 1FL 樓板底模（地樑之間的版）。樓梯（斜底版＋踏步立面）依樓梯剖面圖算在牆，樓梯平台算在版。</p>
   <p class="muted small">版模板取「真實模板」；版混凝土 = 原始模板面積 × 版厚。梁混凝土取全梁深 b×h×淨跨，柱、牆高度算到版底（H − ts），三者不重複計算。</p></div>`;
 }
 /* ---------- 導引圖 ---------- */
