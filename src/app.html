@@ -530,6 +530,19 @@ const RX_COL=/^[A-Z]{0,3}C[0-9A-Za-z\-]*$/i;
 const RX_BEAM=/^([A-Z]{0,2}[BGJ][0-9A-Za-z\-]*)\s*(?:[(（]?\s*(\d{2,3})\s*[xX×*]\s*(\d{2,3})(?:\s*\/\s*(\d{2,3}))?\s*[)）]?)?$/i;
 const RX_WALL=/^([A-Z]{0,2}W[0-9A-Za-z\-]*)/i;
 
+/* 地樑外緣圍起來的實際範圍（不一定是矩形，例如缺角）：5cm 格，地樑帶狀區塗滿後，從外面灌不進去的部分 = 範圍；回傳面積與周長 */
+function gbOutline(beams,O,k){
+  const ob=bbox(O),m=1.5/k,inO=b=>{const c=[(b.p0[0]+b.p1[0])/2,(b.p0[1]+b.p1[1])/2];return c[0]>=ob[0]-m&&c[0]<=ob[2]+m&&c[1]>=ob[1]-m&&c[1]<=ob[3]+m};
+  let gb=beams.filter(b=>inO(b)&&b.h>=1);if(gb.length<3)gb=beams.filter(b=>inO(b)&&/^F/i.test(b.code||''));if(gb.length<3)return {};
+  const cs=0.05/k,bb=bbox(gb.flatMap(b=>[b.p0,b.p1])),pad=1/k,x0=bb[0]-pad,y0=bb[1]-pad,W=Math.ceil((bb[2]-bb[0]+2*pad)/cs),H=Math.ceil((bb[3]-bb[1]+2*pad)/cs);if(W*H>4e6)return {};
+  const G=new Uint8Array(W*H);
+  gb.forEach(b=>{const dx=b.p1[0]-b.p0[0],dy=b.p1[1]-b.p0[1],L=Math.hypot(dx,dy)||1,ux=dx/L,uy=dy/L,hw=(b.w||b.b||0.3)/2/k;
+    for(let t=-hw;t<=L+hw;t+=cs/2)for(let q=-hw;q<=hw;q+=cs/2){const x=b.p0[0]+ux*t-uy*q,y=b.p0[1]+uy*t+ux*q,c=Math.floor((x-x0)/cs),r=Math.floor((y-y0)/cs);if(c>=0&&r>=0&&c<W&&r<H)G[r*W+c]=1}});
+  // 從邊界灌水：灌得到的是外面
+  const st=[];for(let c=0;c<W;c++){st.push(c,(H-1)*W+c)}for(let r=0;r<H;r++){st.push(r*W,r*W+W-1)}
+  while(st.length){const v=st.pop();if(G[v])continue;G[v]=2;const x=v%W;if(x>0)st.push(v-1);if(x<W-1)st.push(v+1);if(v>=W)st.push(v-W);if(v<W*(H-1))st.push(v+W)}
+  let n=0,e=0;for(let r=0;r<H;r++)for(let c=0;c<W;c++){const v=r*W+c;if(G[v]===2)continue;n++;[[c-1,r],[c+1,r],[c,r-1],[c,r+1]].forEach(([a,b2])=>{if(a<0||b2<0||a>=W||b2>=H||G[b2*W+a]===2)e++})}
+  return {Ao:r2(n*cs*cs*k*k),Po:r2(e*cs*k)}}
 /* 由樑、柱、牆圍出樓版每一格（淨面積，扣除開口與樓梯） */
 function slabBays(ents,k,polys,cols,beams,walls){
   const cs=0.01/k;// 1cm 格
@@ -730,7 +743,7 @@ function recognize(ents,d,P){
   const outl=bayInfo?bayInfo.outlines.map(O=>{const bb=bbox(O),A=r2(Math.abs(polyArea(O))*k*k),Lx=r2((bb[2]-bb[0])*k),Ly=r2((bb[3]-bb[1])*k);// 地樑外緣範圍（開挖、1 樓版用；不含懸臂版）
     let gx0=1e18,gy0=1e18,gx1=-1e18,gy1=-1e18;beams.forEach(b=>{const m=[(b.p0[0]+b.p1[0])/2,(b.p0[1]+b.p1[1])/2];if(!inPoly(m,O))return;const hw=(b.w||0)/2/k;[b.p0,b.p1].forEach(q=>{gx0=Math.min(gx0,q[0]-hw);gx1=Math.max(gx1,q[0]+hw);gy0=Math.min(gy0,q[1]-hw);gy1=Math.max(gy1,q[1]+hw)})});
     const Bx=gx1>gx0?r2((gx1-gx0)*k):null,By=gy1>gy0?r2((gy1-gy0)*k):null;
-    return {A,Lx,Ly,Bx,By,rect:Math.abs(A-Lx*Ly)<0.01*A,c:centroid(O)}}):[];
+    return {A,Lx,Ly,Bx,By,rect:Math.abs(A-Lx*Ly)<0.01*A,c:centroid(O),...gbOutline(beams,O,k)}}):[];
   // 基礎層周邊地樑：樑的某一側（12m 內）再沒有平行且跨度重疊的樑，就是最外圍的樑
   beams.forEach(b=>{const dx=b.p1[0]-b.p0[0],dy=b.p1[1]-b.p0[1],L=Math.hypot(dx,dy)||1,ux=dx/L,uy=dy/L,nx=-uy,ny=ux,R=12/k;
     const side=sg=>beams.some(o=>{if(o===b)return false;const ox=o.p1[0]-o.p0[0],oy=o.p1[1]-o.p0[1],oL=Math.hypot(ox,oy)||1;if(Math.abs(ox/oL*uy-oy/oL*ux)>0.05)return false;
@@ -894,7 +907,7 @@ function autoProcess(P,d,ents){
   if(floors.length)ensureFloors(P,floors);
   else{floors=[P.floors.find(f=>f.name==='1')?.name||P.floors[0]?.name||'1'];ensureFloors(P,floors)}
   d.floors=floors;d.floorFrom=(det.from||'未標示，暫列 '+floors[0]+' 層')+(st&&det.floors.length?'；結構平面圖歸入下方樓層':'');d.levels=nLv;
-  d.slabT=P.slabT;d.beamH=P.beamH;d.parapet=readParapet(ents);d.stairs=readStairs(ents,d.unit);d.drop=readDrop(ents,d.unit);d.stairN=countStairs(ents,d.unit);d.slabSch=readSlabSchedule(ents);{const fs=d.slabSch.find(x=>x.codes.some(c=>/^F/.test(c)));d.raftT=fs?fs.t:null}
+  d.slabT=P.slabT;d.beamH=P.beamH;d.parapet=readParapet(ents);d.stairs=readStairs(ents,d.unit);d.drop=readDrop(ents,d.unit);d.stairN=countStairs(ents,d.unit);d.slabSch=readSlabSchedule(ents);{const fs=d.slabSch.find(x=>x.codes.some(c=>/^F/.test(c)));const tr=(ents.tabs||[]).flatMap(t=>t.rows).find(r=>r.t&&r.codes.some(c=>/^FS/i.test(c)));d.raftT=fs?fs.t:tr?tr.t:null}
   const R=recognize(ents,d,P);
   if(titles.length>=2||(titles.length===1&&!det.floors.length)){assignPlans(R,titles,d.unit);d.plans=titles.map(t=>t.s);d.floorFrom='依各平面圖圖名分層（'+titles.length+' 張）'+(st?'；結構平面圖歸入下方樓層':'');
     [R.slabs,R.cols,R.beams,R.walls,R.outl,R.pits].forEach(a=>a.forEach(e=>{if(e._plan)e.fl=st?planStory(e._plan,tStr):archStory(e._plan,tStr)}));
@@ -1211,7 +1224,9 @@ function applyRecog(P,d,R){
       const ns=!isF(f)&&b.noSl&&b.noSl[0]+b.noSl[1]>=0.05?b.noSl.slice().sort((x,y)=>y-x):null;const key=`B|${b.code}|${b.b}|${b.h}|${b.h2}|${b.edge?1:0}|${b.L}|${b.cx||0}|${pk?pk.join(','):''}|${ns?ns.join(','):''}`;if(!grp.has(key))grp.set(key,{type:'樑',code:b.code,b:b.b,h:b.h,h2:b.h2||null,...(ns?{ns}:{}),...(b.cx?{cx:b.cx}:{}),...(pk?{pit:pk,dP:b.dP,hN:b.hN}:{}),edge:!!b.edge,pos:(b.edge?(isF(f)?'周邊單面':'邊樑'):(isF(f)?'中間雙面':''))+(b.h2?` 深${Math.round(b.h*100)}/${Math.round(b.h2*100)}`:''),L:b.L,n:0,lens:[],geo:[]});const g=grp.get(key);g.n++;g.lens.push(b.L);g.geo.push([(b.cxP?.[0]||b.p0).map(v=>v*d.unit),(b.cxP?.[1]||b.p1).map(v=>v*d.unit)])});
     if(isF(f)&&d.kind==='struct')(R.outl||[]).filter(on).forEach((o,i)=>{const dim=o.rect?`${fm(o.Lx)}×${fm(o.Ly)}`:fm(o.A);
       // 開挖範圍 = 地樑外緣長、寬各加 20cm：基礎版混凝土；1 樓地板取地樑外緣範圍，超出的懸臂版（FCS）另列
-      const ex=o.Bx&&o.By,eA=ex?r2((o.Bx+0.2)*(o.By+0.2)):o.A,eD=ex?`(${fm(o.Bx)}+0.2)×(${fm(o.By)}+0.2)`:dim,sA=ex?r2(o.Bx*o.By):o.A,sD=ex?`${fm(o.Bx)}×${fm(o.By)}`:dim;
+      let ex=o.Bx&&o.By,eA=ex?r2((o.Bx+0.2)*(o.By+0.2)):o.A,eD=ex?`(${fm(o.Bx)}+0.2)×(${fm(o.By)}+0.2)`:dim,sA=ex?r2(o.Bx*o.By):o.A,sD=ex?`${fm(o.Bx)}×${fm(o.By)}`:dim;
+      // 地樑外緣不是矩形（缺角）：照結構平面圖的實際範圍，外擴 10cm = 面積 + 周長×0.1 + 0.04
+      if(ex&&o.Ao&&Math.abs(o.Ao-o.Bx*o.By)>0.005*o.Bx*o.By){eA=r2(o.Ao+o.Po*0.1+0.04);eD=`地樑外緣 ${fm(o.Ao)} + 周長 ${fm(o.Po)}×0.1 + 0.04`;sA=o.Ao;sD=`地樑外緣 ${fm(o.Ao)}`}
       P.members.push({id:uid(),bldg:d.bldg,floor:f,src:d.id,type:'其他',kind:'raft',code:'基礎版',pos:ex?'開挖範圍':'',A:eA,dim:eD,fx:'',cx:''});
       const pz=(R.pits||[]).filter(on),op=r2(pz.reduce((a,q)=>a+q.Ai,0));
       P.members.push({id:uid(),bldg:d.bldg,floor:f,src:d.id,type:'其他',kind:'slab1',code:'1樓地板',A:sA,dim:sD,open:op||null,fx:'',cx:''})});
