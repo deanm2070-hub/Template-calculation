@@ -26,7 +26,7 @@ def build(target):
         os.makedirs(os.path.dirname(out), exist_ok=True)
     else:
         head = ('<!doctype html>\n<html lang="zh-Hant">\n<head>\n<meta charset="utf-8">\n'
-                '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">\n'
+                '<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">\n'
                 '<link rel="manifest" href="manifest.webmanifest">\n'
                 '<link rel="apple-touch-icon" href="assets/icon-180.png">\n'
                 '<link rel="icon" href="assets/icon-192.png">\n'
