@@ -41,7 +41,7 @@ html,body{height:100%}
 html{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adjust:100%}
 html,body{overflow-x:hidden;max-width:100%}
 *,*::before,*::after{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.55}
+body{margin:0;padding-top:var(--toph,0px);background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.55}
 button,input,select,textarea{font:inherit;color:inherit}
 .num{font-family:var(--f-num);font-variant-numeric:tabular-nums}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -64,7 +64,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 
 /* ---------- 工作區 ---------- */
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--navy)}
-.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:9;background:var(--navy);color:#fff;display:flex;align-items:center;gap:14px;padding-block:6px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));flex-wrap:wrap}
+.top{position:fixed;top:0;left:0;right:0;z-index:9;background:var(--navy);color:#fff;display:flex;align-items:center;gap:14px;padding-bottom:6px;padding-top:calc(6px + env(safe-area-inset-top,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));flex-wrap:wrap}
 .top img{width:30px;height:auto}
 .brand{font-family:var(--f-display);font-weight:900;letter-spacing:.08em;font-size:17px;cursor:pointer;background:none;border:0;color:#fff;padding:0}
 .top .crumb{color:rgba(220,226,255,.85);font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
@@ -648,8 +648,16 @@ function autoProcess(P,d,ents){
   const R=recognize(ents,d,P);
   const titles=findPlanTitles(ents);
   if(titles.length>=2||(titles.length===1&&!det.floors.length)){assignPlans(R,titles,d.unit);d.plans=titles.map(t=>t.s);d.floorFrom='依各平面圖圖名分層（'+titles.length+' 張）'}
+  d.kind=drawKind(d.name,ents,titles);
   applyRecog(P,d,R);
   return R;
+}
+/* 判斷結構圖或建築圖：柱、梁以結構圖為準 */
+function drawKind(name,ents,titles){
+  const T=ents.texts.map(t=>t.s);
+  if(titles.some(t=>/結構|FRAMING|STRUCT/i.test(t.s))||T.some(s=>s.length<=30&&/結構平面|結構圖|FRAMING PLAN/i.test(s))||/結構|(^|[_\-\s])S\d/i.test(name))return 'struct';
+  if(/建築|(^|[_\-\s圖])A\d{2,}/i.test(name)||titles.length||T.some(s=>s.length<=30&&/建築|(^|層)平面圖$|立面圖|剖面圖/.test(s)))return 'arch';
+  return 'struct';
 }
 
 /* 剖面／立面圖：讀取樓層標高 */
@@ -765,6 +773,7 @@ function applyRecog(P,d,R){
   if(!floors.length)floors.push(...def);
   ensureFloors(P,floors);
   floors.sort((a,b)=>floorKey(a)-floorKey(b));
+  const hold=[];
   floors.forEach(f=>{
     const on=e=>flOf(e).includes(f);
     R.slabs.filter(on).sort((a,b)=>a.code.localeCompare(b.code)||(b.pts[0][1]-a.pts[0][1])).forEach(s=>P.slabs.push({id:uid(),bldg:d.bldg,floor:f,code:s.code,no:nextNo(P),t:s.t,orig:s.orig,seal:s.seal,wall:s.wall,col:s.col,src:d.id,geo:s.geo}));
@@ -772,15 +781,26 @@ function applyRecog(P,d,R){
     R.cols.filter(on).forEach(c=>{const key=`${c.code}|${c.shape}|${c.b}|${c.h}|${c.pos||''}`;if(!grp.has(key))grp.set(key,{type:'柱',code:c.code,shape:c.shape,b:c.b,h:c.h,pos:c.pos||'',n:0,geo:[]});const g=grp.get(key);g.n++;g.geo.push(c.c.map(v=>v*d.unit))});
     R.beams.filter(on).forEach(b=>{const key=`B|${b.code}|${b.b}|${b.h}|${b.edge?1:0}`;if(!grp.has(key))grp.set(key,{type:'梁',code:b.code,b:b.b,h:b.h,edge:!!b.edge,pos:b.edge?'邊梁':'',L:0,n:1,lens:[],geo:[]});const g=grp.get(key);g.L=Math.round((g.L+b.L)*100)/100;g.lens.push(b.L);g.geo.push([b.p0.map(v=>v*d.unit),b.p1.map(v=>v*d.unit)])});
     R.walls.filter(on).forEach(w=>{const key=`W|${w.code}|${w.w}`;if(!grp.has(key))grp.set(key,{type:'牆',code:w.code,b:w.w,L:0,n:1,lens:[],geo:[]});const g=grp.get(key);g.L=Math.round((g.L+w.L)*100)/100;g.lens.push(w.L);g.geo.push([w.p0.map(v=>v*d.unit),w.p1.map(v=>v*d.unit)])});
-    grp.forEach(g=>P.members.push(Object.assign({id:uid(),bldg:d.bldg,floor:f,src:d.id},g)));
+    grp.forEach(g=>{const m=Object.assign({id:uid(),bldg:d.bldg,floor:f,src:d.id},g);if(d.kind==='arch'&&(g.type==='柱'||g.type==='梁'))hold.push(m);else P.members.push(m)});
   });
+  d.hold=hold;
   d.floors=floors;
+  reconcile(P);
   d.recog={slabs:R.slabs.length,cols:R.cols.length,beams:R.beams.length,walls:R.walls.length,dropped:R.dropped||0,at:Date.now()};
 }
 
+/* 柱、梁以結構圖為準：建築圖的柱、梁只在該樓層沒有結構圖時暫用 */
+function reconcile(P){
+  P.members=P.members.filter(m=>!m.held);
+  const cover=new Set(P.drawings.filter(d=>d.kind!=='arch').flatMap(d=>d.floors||[]));
+  P.drawings.filter(d=>d.kind==='arch'&&d.hold).forEach(d=>{
+    d.used=0;d.hold.forEach(m=>{if(!cover.has(m.floor)){P.members.push(Object.assign({},m,{held:true}));d.used++}})});
+}
 /* =========================================================
    畫面
    ========================================================= */
+// 藍色標題列固定在最上緣，內容往下讓出標題列高度
+{const t=document.getElementById('top'),fit=()=>document.documentElement.style.setProperty('--toph',(t.hidden?0:t.offsetHeight)+'px');new ResizeObserver(fit).observe(t);new MutationObserver(fit).observe(t,{attributes:true,attributeFilter:['hidden']})}
 function go(view){S.view=view;render()}
 function render(){
   const main=$('#main'),top=$('#top');main.hidden=false;top.hidden=false;
@@ -850,7 +870,7 @@ function viewDraw(p){
       <div class="row" style="justify-content:space-between"><h3>${esc(d.name)}</h3><button class="btn sm danger" data-act="dwgdel" data-id="${d.id}">刪除圖檔</button></div>
       ${d.recog?`<div class="stat"><div><b>${d.recog.slabs}</b><span>版</span></div><div><b>${d.recog.cols}</b><span>柱</span></div><div><b>${d.recog.beams}</b><span>梁段</span></div><div><b>${d.recog.walls}</b><span>牆段</span></div></div>`:''}
       ${d.recog&&d.recog.dropped?`<div class="muted small">已排除 ${d.recog.dropped} 個重疊或離結構太遠的柱框（例如柱表、詳圖），未計入柱數量。</div>`:''}
-      <div class="small">樓層：<b>${esc(d.floors.join('、')||'—')}</b>　<span class="muted">（${esc(d.floorFrom||'')}）</span>${d.levels?`<br>已從圖中標高更新 ${d.levels} 個樓層的層高`:''}</div>
+      <div class="small">樓層：<b>${esc(d.floors.join('、')||'—')}</b>　<span class="muted">（${esc(d.floorFrom||'')}）</span><br>圖別：<b>${d.kind==='arch'?'建築圖':'結構圖'}</b>${d.kind==='arch'?`　<span class="muted">柱、梁以結構圖為準${d.used?`；${d.used} 筆柱梁暫用本圖（該層尚無結構圖）`:'，本圖柱梁不計入'}</span>`:''}${d.levels?`<br>已從圖中標高更新 ${d.levels} 個樓層的層高`:''}</div>
       ${d.recog&&!(d.recog.slabs+d.recog.cols+d.recog.beams+d.recog.walls)?'<div class="note small">這張圖沒有找到版、柱、梁或牆。若它是平面或結構圖，可展開下方「圖層對應」手動指定。</div>':''}
       <details><summary class="small muted" style="cursor:pointer">圖層對應（已自動判斷，可修正）・${/\.dwg$/i.test(d.name)?'DWG':'DXF'} ${esc(DWGVER[d.ver]||d.ver||'')}・單位 ${uName[d.unit]||d.unit}</summary>
         <div class="layers" style="margin-top:8px"><table><tbody id="layerRows"></tbody></table></div>
@@ -975,7 +995,7 @@ function viewMem(p){
     <td>${o?'':inp(m,'ded')}</td><td>${m.type==='牆'?inp(m,'open'):''}</td>
     <td>${o?`<input class="w10 num" type="text" data-mk="fx" value="${esc(m.fx||'')}">`:''}</td><td>${o?`<input class="w10 num" type="text" data-mk="cx" value="${esc(m.cx||'')}">`:''}</td>
     <td class="r num" data-out="form"><b>${f2(c.form)}</b></td><td class="r num" data-out="conc">${f2(c.conc)}</td>
-    <td>${m.src==='man'?'<span class="pill man">手動</span>':'<span class="pill dxf">DXF</span>'}</td>
+    <td>${m.src==='man'?'<span class="pill man">手動</span>':m.held?'<span class="pill warn" title="該層尚無結構圖，暫用建築圖">建築圖</span>':'<span class="pill dxf">DXF</span>'}</td>
     <td><div class="row" style="flex-wrap:nowrap;gap:4px"><button class="btn sm" data-act="gmem" data-id="${m.id}">導引</button><button class="btn sm danger" data-act="delmem" data-id="${m.id}" aria-label="刪除">刪</button></div></td></tr>`}).join('')||`<tr><td colspan="19"><div class="empty">沒有構件。</div></td></tr>`}</tbody></table></div></div>`;
 }
 /* ---------- 模板報表 ---------- */
@@ -1198,7 +1218,7 @@ document.addEventListener('click',async e=>{
   case 'tab':S.tab=el.dataset.k;render();window.scrollTo(0,0);break;
   case 'dwg':S.dwg=el.dataset.id;V.hi=null;render();break;
   case 'dwgdel':{const id=el.dataset.id;if(el.dataset.sure!=='1'){el.dataset.sure='1';el.textContent='再按一次確認刪除';return}
-    p.drawings=p.drawings.filter(d=>d.id!==id);p.slabs=p.slabs.filter(s=>s.src!==id);p.members=p.members.filter(m=>m.src!==id);entDel(id);S.dwg=null;saveAll();render();toast('已刪除圖檔及其辨識資料');break}
+    p.drawings=p.drawings.filter(d=>d.id!==id);p.slabs=p.slabs.filter(s=>s.src!==id);p.members=p.members.filter(m=>m.src!==id);reconcile(p);entDel(id);S.dwg=null;saveAll();render();toast('已刪除圖檔及其辨識資料');break}
   case 'fit':if(V.ents){fitTo(V.ents.ext);draw()}break;
   case 'togTxt':V.txt=!V.txt;draw();break;
   case 'togOv':V.ov=!V.ov;draw();break;
@@ -1272,7 +1292,7 @@ function download(name,data,type){const a=document.createElement('a');a.href=URL
 })();
 
 /* 新版本提示：網站版才有，按「更新」才重新載入 */
-const BUILD='20261026025047';
+const BUILD='20261026033352';
 function checkUpdate(){
   if(!BUILD||BUILD.startsWith('__')||!/^https?:/.test(location.protocol))return;
   fetch('version.json?t='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{
