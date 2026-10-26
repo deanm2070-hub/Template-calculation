@@ -4,7 +4,7 @@
   python3 build.py            -> index.html (GitHub Pages / standalone, installable to home screen)
   python3 build.py artifact   -> dist/artifact.html (body-only page for the Claude artifact viewer)
 """
-import base64, os, sys
+import base64, json, os, subprocess, sys, time
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 rd = lambda p, mode='r': open(os.path.join(ROOT, p), mode).read()
@@ -22,6 +22,7 @@ def build(target):
     s += ('\n<!-- LibreDWG (GPL-3.0) via @mlightcad/libredwg-web 0.7.17 -->\n<script>' + glue + '</script>\n<script>' + umd +
           '</script>\n<script type="application/octet-stream" id="lwasm">' + wasm + '</script>\n')
     if target == 'artifact':
+        s = s.replace("const BUILD='__BUILD__';", "const BUILD='';")
         out = os.path.join(ROOT, 'dist/artifact.html')
         os.makedirs(os.path.dirname(out), exist_ok=True)
     else:
@@ -32,6 +33,9 @@ def build(target):
                 '<link rel="icon" href="assets/icon-192.png">\n'
                 '<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}</style>\n')
         s = head + s + '</html>\n'
+        build_id = time.strftime('%Y%m%d%H%M%S')
+        s = s.replace("const BUILD='__BUILD__';", "const BUILD='%s';" % build_id)
+        open(os.path.join(ROOT, 'version.json'), 'w').write(json.dumps({'v': build_id}) + '\n')
         out = os.path.join(ROOT, 'index.html')
     open(out, 'w').write(s)
     print(out, len(s))
