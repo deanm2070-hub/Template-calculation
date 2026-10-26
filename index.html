@@ -846,8 +846,30 @@ function autoProcess(P,d,ents){
   if(titles.length>=2||(titles.length===1&&!det.floors.length)){assignPlans(R,titles,d.unit);d.plans=titles.map(t=>t.s);d.floorFrom='依各平面圖圖名分層（'+titles.length+' 張）'+(st?'；結構平面圖歸入下方樓層':'');
     [R.slabs,R.cols,R.beams,R.walls,R.outl,R.pits].forEach(a=>a.forEach(e=>{if(e._plan)e.fl=st?planStory(e._plan,tStr):archStory(e._plan,tStr)}));
     d.planAt={};titles.forEach(t=>(st?planStory(t.s,tStr):archStory(t.s,tStr)).forEach(f=>{if(!d.planAt[f])d.planAt[f]=[t.cx*d.unit,t.y*d.unit]}))}
+  d.openSch=readOpenSch(ents,d.unit);R.wfill=wallFills(R,ents,d.openSch,d.unit);
   applyRecog(P,d,R);
   return R;
+}
+/* 門窗表：「D1」＋「90x210 木門」→ {D1:{w:0.9,h:2.1,name:'木門'}} */
+function readOpenSch(ents,k){
+  const T=ents.texts,sz=/^(\d+(?:\.\d+)?)\s*[xX×]\s*(\d+(?:\.\d+)?)\s*(\S*[門窗]\S*)$/,tg=/^[A-Z]{1,3}\d{1,2}[A-Z]?$/,out={};
+  T.forEach(t=>{const mm=String(t.s).trim().match(sz);if(!mm)return;let best=null,bd=2.0/k;T.forEach(o=>{if(!tg.test(o.s))return;const dx=t.x-o.x,dy=Math.abs(t.y-o.y);if(dx<=0||dy>0.4/k)return;if(dx<bd){bd=dx;best=o}});
+    if(!best||out[best.s])return;let w=+mm[1],h=+mm[2];if(h>10){w/=100;h/=100}out[best.s]={w:r2(w),h:r2(h),name:mm[3]}});
+  return out;
+}
+/* 牆的空缺（牆端到下一個柱或牆之間）：旁邊有門窗編號 → 牆照整道算、扣門窗開口；沒有標示 → 空缺整個扣到樑底（不補） */
+function wallFills(R,ents,sch,k){
+  if(!Object.keys(sch).length)return [];
+  const tags=ents.texts.filter(t=>sch[t.s]),out=[],st=0.05/k,mx=3.2/k;
+  const W=R.walls.map(w=>{const dx=w.p1[0]-w.p0[0],dy=w.p1[1]-w.p0[1],L=Math.hypot(dx,dy)||1;return {w,ux:dx/L,uy:dy/L,L}});
+  const hit=(q,A,fl)=>(R.cols||[]).some(c=>inPoly(q,c.pts))||W.some(C=>C!==A&&String(C.w.fl)===String(fl)&&segDist(q,C.w.p0,C.w.p1)<=C.w.w/2/k+0.01/k);
+  W.forEach(A=>{const {w,ux,uy}=A;
+    [[w.p1,1],[w.p0,-1]].forEach(([e,sg])=>{let t=st,end=null;while(t<=mx){const q=[e[0]+ux*sg*t,e[1]+uy*sg*t];if(hit(q,A,w.fl)){end=t;break}t+=st}
+      if(end==null||end<0.3/k)return;const b=[e[0]+ux*sg*end,e[1]+uy*sg*end],m=[(e[0]+b[0])/2,(e[1]+b[1])/2],g=end;
+      if(out.some(o=>Math.hypot(o.m[0]-m[0],o.m[1]-m[1])<0.1/k))return;
+      let tag=null,td=1e18;tags.forEach(x=>{const al=(x.x-m[0])*ux+(x.y-m[1])*uy,pp=Math.abs((x.x-m[0])*uy-(x.y-m[1])*ux);if(Math.abs(al)>(g/2+0.3/k)||pp>1.0/k)return;const dd=Math.hypot(al,pp);if(dd<td){td=dd;tag=x}});
+      if(!tag)return;const o=sch[tag.s];out.push({m,fl:w.fl,code:w.code,w:w.w,p0:sg>0?e:b,p1:sg>0?b:e,L:r2(g*k),open:{tag:tag.s,ow:r2(Math.min(o.w,g*k)),oh:o.h,name:o.name}})})});
+  return out;
 }
 /* 判斷結構圖或建築圖：柱、樑以結構圖為準 */
 function drawKind(name,ents,titles){
@@ -1008,7 +1030,10 @@ function memCalc(m,P){
     const k=num(m.k,0),td=num(m.td,0.21),ns=num(m.n,stairN(P)),nn=ns!==1?'×'+ns:'',Ls=m.Lf&&Math.abs(evalExpr(m.Lf)-L)<0.01&&/\+/.test(m.Lf)?`(${m.Lf})`:fm(L);
     form=(L*b+h*b*k)*ns-ded;conc=(L*b*ts+k*h*td/2*b)*ns;
     ft=`(${Ls}×${fm(b)} + ${fm(h)}×${fm(b)}×${k})${nn}`+(ded?` − ${fm(ded)}`:'');ct=`(${Ls}×${fm(b)}×${fm(ts)} + ${k}×${fm(h)}×${fm(td)}/2×${fm(b)})${nn}`}
-  else if(m.type==='牆'){const hb=num(m.hb,0),hp=num(m.hp,0),top=hb>0?hb:ts,hn=hp>0?hp:r2(H-top);form=2*L*hn*n-2*op-ded;conc=(L*hn*n-op)*b;ft=`2×${fm(L)}×${hp>0?`女兒牆${fm(hp)}`:hb>0?`(${fm(H)}−樑深${fm(hb)})`:fm(hn)}${n!==1?'×'+n:''}`+(op?` − 2×${fm(op)}`:'')+(ded?` − ${fm(ded)}`:'');ct=`(${fm(L)}×${fm(hn)}${n!==1?'×'+n:''}${op?' − '+fm(op):''})×${fm(b)}`}
+  else if(m.type==='牆'){const hb=num(m.hb,0),hp=num(m.hp,0),top=hb>0?hb:ts,hn=hp>0?hp:r2(H-top);
+    // 門窗開口（依門窗表尺寸，高度不超過牆高）；牆長已含開口寬
+    const os=(m.opens||[]).map(o=>({t:`${o.tag} ${fm(o.ow)}×${fm(Math.min(o.oh,hn))}`,a:o.ow*Math.min(o.oh,hn)})),oa=r2(os.reduce((x,o)=>x+o.a,0)),opT=op+oa;
+    form=2*L*hn*n-2*opT*n-ded;conc=(L*hn*n-opT*n)*b;ft=`2×${fm(L)}×${hp>0?`女兒牆${fm(hp)}`:hb>0?`(${fm(H)}−樑深${fm(hb)})`:fm(hn)}${n!==1?'×'+n:''}`+(os.length?` − 2×(${os.map(o=>o.t).join(' + ')})`:'')+(op?` − 2×${fm(op)}`:'')+(ded?` − ${fm(ded)}`:'');ct=`(${fm(L)}×${fm(hn)}${n!==1?'×'+n:''}${opT?' − '+fm(opT):''})×${fm(b)}`}
   else{form=evalExpr(m.fx);conc=evalExpr(m.cx);ft=m.fx||'0';ct=m.cx||'0'}
   return {form:r2(form),conc:r2(conc),ft,ct,bad:!isFinite(form)||!isFinite(conc),H,ts};
 }
@@ -1111,7 +1136,15 @@ function applyRecog(P,d,R){
       const pz=(R.pits||[]).filter(on),op=r2(pz.reduce((a,q)=>a+q.Ai,0));
       P.members.push({id:uid(),bldg:d.bldg,floor:f,src:d.id,type:'其他',kind:'slab1',code:'1樓地板',A:sA,dim:sD,open:op||null,fx:'',cx:''})});
     if(isF(f)&&d.kind!=='arch')(R.pits||[]).filter(on).forEach(q=>P.members.push({id:uid(),bldg:d.bldg,floor:f,src:d.id,type:'其他',kind:'pit',code:'電梯坑加深區',pos:q.n>1?`${q.n} 坑相連`:'',W:q.W,H:q.H,Ai:q.Ai,d:q.d,geo:[q.bb],inner:q.inner,fx:'',cx:''}));
-    R.walls.filter(on).forEach(w=>{const key=`W|${w.code}|${w.w}`;if(!grp.has(key))grp.set(key,{type:'牆',code:w.code,b:w.w,L:0,n:1,lens:[],geo:[]});const g=grp.get(key);g.L=Math.round((g.L+w.L)*100)/100;g.lens.push(w.L);g.geo.push([w.p0.map(v=>v*d.unit),w.p1.map(v=>v*d.unit)])});
+    [...R.walls,...(R.wfill||[])].filter(on).forEach(w=>{const key=`W|${w.code}|${w.w}`;if(!grp.has(key))grp.set(key,{type:'牆',code:w.code,b:w.w,L:0,n:1,lens:[],geo:[]});const g=grp.get(key);g.L=Math.round((g.L+w.L)*100)/100;
+      const s=[w.p0.map(v=>v*d.unit),w.p1.map(v=>v*d.unit)];
+      if(!w.open){g.lens.push(w.L);g.geo.push(s);return}
+      // 門窗空缺跟兩側同線的牆接成一整道牆（長度含開口），開口另扣
+      const eq=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1])<0.03,touch=e=>g.geo.findIndex(q=>eq(q[0],e)||eq(q[1],e)),far=(q,e)=>eq(q[0],e)?q[1]:q[0];
+      let i=touch(s[0]),j=touch(s[1]);if(i===j)j=-1;let seg=s,len=w.L,ops=[];
+      [i,j].filter(x=>x>=0).sort((x,y)=>y-x).forEach(x=>{const q=g.geo[x],e=eq(q[0],seg[0])||eq(q[1],seg[0])?0:1;seg=e===0?[far(q,seg[0]),seg[1]]:[seg[0],far(q,seg[1])];len=r2(len+g.lens[x]);
+        (g.opens||[]).filter(o=>o.i===x).forEach(o=>ops.push(o));g.opens=(g.opens||[]).filter(o=>o.i!==x).map(o=>({...o,i:o.i>x?o.i-1:o.i}));g.geo.splice(x,1);g.lens.splice(x,1)});
+      g.geo.push(seg);g.lens.push(len);g.opens=(g.opens||[]).concat(ops.map(o=>({...o,i:g.geo.length-1})),[{...w.open,i:g.geo.length-1}])});
     grp.forEach(g=>{if(g.jt){const e=Object.entries(g.jt);g.ded=r2(e.reduce((a,[kk,n])=>{const [x,y]=kk.split('×').map(Number);return a+x*y*n},0))||null;g.dedf=e.map(([kk,n])=>kk+'×'+n).join('+');delete g.jt}
       const m=Object.assign({id:uid(),bldg:d.bldg,floor:f,src:d.id},g);if(g.type==='牆')wraw.push(m);else if(d.kind==='arch')hold.push(m);else P.members.push(m)});
   });
@@ -1203,8 +1236,10 @@ function reconcile(P){
       // 同一段牆裡不到 0.3m 的零碎類別（端部取樣誤差）併入這段的主要類別
       {const ks=[...cnt.keys()].filter(k=>k!=='dup'&&k!=='out');if(ks.length>1){const main=ks.reduce((a,k)=>cnt.get(k)>cnt.get(a)?k:a);ks.forEach(k=>{if(k!==main&&L*cnt.get(k)/N<0.3){cnt.set(main,cnt.get(main)+cnt.get(k));cnt.delete(k)}})}}
       cnt.forEach((c,hb)=>{const l=Math.round(L*c/N*100)/100;if(hb==='dup'){d.wdup+=l;return}if(hb==='out'){d.wout+=l;return}if(l<0.05)return;
-        if(!out.has(hb))out.set(hb,{L:0,lens:[],geo:[]});const o=out.get(hb);o.L=Math.round((o.L+l)*100)/100;o.lens.push(l);o.geo.push(g)})});
-    out.forEach((o,hb)=>P.members.push(Object.assign({},w,{id:uid(),wauto:true,sh:tb||[0,0],L:o.L,lens:o.lens,geo:o.geo,hb:hb==='P'?0:(hb||0),hp:hb==='P'?hPar:null,pos:hb==='P'?'女兒牆':hb?'至樑底':''})))});
+        if(!out.has(hb))out.set(hb,{L:0,lens:[],geo:[],opens:[]});const o=out.get(hb);o.L=Math.round((o.L+l)*100)/100;o.lens.push(l);o.geo.push(g)});
+      // 這段是門窗所在的空缺：開口扣在這段所屬（樣本最多）的那一類
+      (w.opens||[]).filter(x=>x.i===i).forEach(x=>{let mk=null,mc=-1;cnt.forEach((c,hb)=>{if(hb!=='dup'&&hb!=='out'&&out.has(hb)&&c>mc){mc=c;mk=hb}});if(mk!=null){const o=out.get(mk),gi=o.geo.lastIndexOf(g);o.opens.push({tag:x.tag,ow:x.ow,oh:x.oh,name:x.name});if(gi>=0)(o.openAt=o.openAt||[])[gi]=((o.openAt||[])[gi]?o.openAt[gi]+'、':'')+x.tag}})});
+    out.forEach((o,hb)=>P.members.push(Object.assign({},w,{id:uid(),wauto:true,sh:tb||[0,0],L:o.L,lens:o.lens,geo:o.geo,opens:o.opens.length?o.opens:undefined,openAt:o.openAt?[...o.openAt].map(x=>x||''):undefined,hb:hb==='P'?0:(hb||0),hp:hb==='P'?hPar:null,pos:hb==='P'?'女兒牆':hb?'至樑底':''})))});
     d.wdup=Math.round(d.wdup*100)/100;d.wout=Math.round(d.wout*100)/100});
   {const used=new Set([...P.slabs.map(x=>x.floor),...P.members.map(x=>x.floor),...P.drawings.flatMap(d=>d.floors||[])]);
     P.floors=P.floors.filter(f=>!f.auto||used.has(f.name))}
@@ -1682,7 +1717,7 @@ function plotData(p,f,b){
     if(m.type==='柱')g.forEach((c,i)=>{const q=m.shp&&m.shp[i];const hb=num(m.b,0.5)/2,hh=num(m.h,0.5)/2;
       it.push({k:'柱',src:m,i,pts:q||[[c[0]-hb,c[1]-hh],[c[0]+hb,c[1]-hh],[c[0]+hb,c[1]+hh],[c[0]-hb,c[1]+hh]],c,lab:m.code,sub:`${Math.round(num(m.b,0)*100)}×${Math.round(num(m.h,0)*100)}`,circle:m.shape==='circle',D:num(m.b,0.5)})});
     if(m.type==='樑')g.forEach((s,i)=>it.push({k:'樑',src:m,i,a:s[0],b:s[1],w:num(m.b,0.3),edge:!!m.edge,lab:m.code,sub:`${Math.round(num(m.b,0)*100)}×${Math.round(num(m.h,0)*100)}${m.h2?'/'+Math.round(m.h2*100):''} L${fm(m.lens?.[i]??m.L)}`}));
-    if(m.type==='牆'){const sh=m.sh||[0,0],tw=m.kind==='drop'?num(m.b,dropOf(p).t):num(m.b,0.2);g.forEach((s,i)=>it.push({k:'牆',src:m,i,a:[s[0][0]+sh[0],s[0][1]+sh[1]],b:[s[1][0]+sh[0],s[1][1]+sh[1]],w:tw,lab:m.pos==='女兒牆'?'女兒牆':m.code,sub:`t${Math.round(tw*100)}${m.kind==='drop'?' 垂'+Math.round(num(m.h,dropOf(p).h)*100):''} L${fm(m.lens?.[i]??m.L)}`}))}});
+    if(m.type==='牆'){const sh=m.sh||[0,0],tw=m.kind==='drop'?num(m.b,dropOf(p).t):num(m.b,0.2);g.forEach((s,i)=>it.push({k:'牆',src:m,i,a:[s[0][0]+sh[0],s[0][1]+sh[1]],b:[s[1][0]+sh[0],s[1][1]+sh[1]],w:tw,lab:m.pos==='女兒牆'?'女兒牆':m.code,sub:`t${Math.round(tw*100)}${m.kind==='drop'?' 垂'+Math.round(num(m.h,dropOf(p).h)*100):''} L${fm(m.lens?.[i]??m.L)}${m.openAt&&m.openAt[i]?' 扣'+m.openAt[i]:''}`}))}});
   // 計算編號：每層依類別（版、柱、樑、牆、其他）由上而下、由左而右編號，圖上與算式表用同一個號碼對照
   const pos=g=>{if(!g)return null;const q=Array.isArray(g[0]?.[0])?g[0]:g;const c=Array.isArray(q[0])?[(q[0][0]+q[q.length-1][0])/2,(q[0][1]+q[q.length-1][1])/2]:q;return c};
   const ord=(a,b)=>{const pa=a.p,pb=b.p;if(!pa||!pb)return (pa?-1:0)-(pb?-1:0);const dy=Math.round(pb[1])-Math.round(pa[1]);return dy||pa[0]-pb[0]};
@@ -2007,7 +2042,7 @@ function download(name,data,type){const a=document.createElement('a');a.href=URL
 })();
 
 /* 新版本提示：網站版才有，按「更新」才重新載入 */
-const BUILD='20261026113359';
+const BUILD='20261026120637';
 function checkUpdate(){
   if(!BUILD||BUILD.startsWith('__')||!/^https?:/.test(location.protocol))return;
   fetch('version.json?t='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{
