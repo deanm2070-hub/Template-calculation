@@ -1373,6 +1373,8 @@ function viewMem(p){
   const fo=floorsDesc(p),to=['柱','樑','牆','其他'];
   const rows=p.members.filter(m=>(!ff||m.floor===ff)&&(!bf||m.bldg===bf)).sort((a,b)=>(fo.indexOf(a.floor)-fo.indexOf(b.floor))||(to.indexOf(a.type)-to.indexOf(b.type))||String(a.code).localeCompare(String(b.code)));
   const inp=(m,k,cls='w4',step='0.01')=>`<input class="${cls} num" type="number" step="${step}" data-mk="${k}" value="${esc(m[k]??'')}">`;
+  // 出圖的計算編號（每層每支柱、樑、牆各一號），方便對照圖面
+  const idm=new Map(),pid=m=>{const k=m.floor+'|'+m.bldg;if(!idm.has(k))idm.set(k,plotData(p,m.floor,m.bldg).ids);return idm.get(k).get(m)||''};
   return `<div class="stack">
   <div class="row" style="justify-content:space-between">
     <div class="row"><label class="small muted" for="mfB">棟別</label><select id="mfB" data-filter="bldgFilter"><option value="">全部</option>${opts(p.bldgs,bf)}</select>
@@ -1382,7 +1384,7 @@ function viewMem(p){
   <div class="scroll"><table class="data cardify"><thead><tr><th>棟別</th><th>樓層</th><th>類型</th><th>編號</th><th>寬（圓柱直徑）</th><th>深</th><th>長度</th><th>層高</th><th>版厚</th><th>數量</th><th>邊樑外側／圓柱</th><th>扣模板 m²</th><th>開口 m²</th><th>模板式（其他）</th><th>混凝土式（其他）</th><th class="r">模板 m²</th><th class="r">混凝土 m³</th><th>來源</th><th></th></tr></thead>
   <tbody>${rows.map(m=>{const c=memCalc(m,p);const o=m.type==='其他';return `<tr data-id="${m.id}" class="${c.bad?'bad':''}">
     <td><select data-mk="bldg">${opts(p.bldgs,m.bldg)}</select></td><td><select data-mk="floor">${opts(p.floors.map(f=>f.name),m.floor)}</select></td>
-    <td>${esc(m.type)}${m.pos?`<span class="pill man" style="margin-left:4px">${esc(m.pos)}</span>`:''}</td><td><input class="w4" type="text" data-mk="code" value="${esc(m.code)}"></td>
+    <td>${esc(m.type)}${m.pos?`<span class="pill man" style="margin-left:4px">${esc(m.pos)}</span>`:''}${pid(m)?`<div class="small" style="color:#dd6b20;font-weight:700;margin-top:4px">圖號 ${esc(pid(m))}</div>`:''}</td><td><input class="w4" type="text" data-mk="code" value="${esc(m.code)}"></td>
     <td>${o?'':inp(m,'b')}</td><td>${m.type==='柱'||m.type==='樑'||m.kind==='stair'?inp(m,'h'):''}</td><td>${m.type==='樑'||m.type==='牆'?inp(m,'L','w6'):''}</td>
     <td>${m.kind==='stair'?`${inp(m,'k','w4','1')} 階`:m.type==='柱'||m.type==='牆'?`<input class="w4 num" type="number" step="0.01" data-mk="H" value="${esc(m.H??'')}" placeholder="${fm(floorH(p,m.floor))}">`:''}</td>
     <td>${o?'':`<input class="w4 num" type="number" step="0.01" data-mk="ts" value="${esc(m.ts??'')}" placeholder="${fm(p.slabT)}">`}</td>
@@ -1558,16 +1560,21 @@ function plotData(p,f,b){
   ms.forEach(m=>{const g=m.geo||[];
     if(m.kind==='pit'){const R4=b=>[[b[0],b[1]],[b[2],b[1]],[b[2],b[3]],[b[0],b[3]]];g.forEach(bb=>it.push({k:'坑',src:m,pts:R4(bb),lab:'電梯坑加深區',sub:`加深 ${fm(m.d)}　${f2(memCalc(m,p).conc)}m³`}));(m.inner||[]).forEach(bb=>it.push({k:'坑內',pts:R4(bb)}))}
     if(m.type==='柱')g.forEach((c,i)=>{const q=m.shp&&m.shp[i];const hb=num(m.b,0.5)/2,hh=num(m.h,0.5)/2;
-      it.push({k:'柱',src:m,pts:q||[[c[0]-hb,c[1]-hh],[c[0]+hb,c[1]-hh],[c[0]+hb,c[1]+hh],[c[0]-hb,c[1]+hh]],c,lab:m.code,sub:`${Math.round(num(m.b,0)*100)}×${Math.round(num(m.h,0)*100)}`,circle:m.shape==='circle',D:num(m.b,0.5)})});
-    if(m.type==='樑')g.forEach((s,i)=>it.push({k:'樑',src:m,a:s[0],b:s[1],w:num(m.b,0.3),edge:!!m.edge,lab:m.code,sub:`${Math.round(num(m.b,0)*100)}×${Math.round(num(m.h,0)*100)}${m.h2?'/'+Math.round(m.h2*100):''} L${fm(m.lens?.[i]??m.L)}`}));
-    if(m.type==='牆'){const sh=m.sh||[0,0];g.forEach((s,i)=>it.push({k:'牆',src:m,a:[s[0][0]+sh[0],s[0][1]+sh[1]],b:[s[1][0]+sh[0],s[1][1]+sh[1]],w:num(m.b,0.2),lab:m.pos==='女兒牆'?'女兒牆':m.code,sub:`t${Math.round(num(m.b,0)*100)} L${fm(m.lens?.[i]??m.L)}`}))}});
+      it.push({k:'柱',src:m,i,pts:q||[[c[0]-hb,c[1]-hh],[c[0]+hb,c[1]-hh],[c[0]+hb,c[1]+hh],[c[0]-hb,c[1]+hh]],c,lab:m.code,sub:`${Math.round(num(m.b,0)*100)}×${Math.round(num(m.h,0)*100)}`,circle:m.shape==='circle',D:num(m.b,0.5)})});
+    if(m.type==='樑')g.forEach((s,i)=>it.push({k:'樑',src:m,i,a:s[0],b:s[1],w:num(m.b,0.3),edge:!!m.edge,lab:m.code,sub:`${Math.round(num(m.b,0)*100)}×${Math.round(num(m.h,0)*100)}${m.h2?'/'+Math.round(m.h2*100):''} L${fm(m.lens?.[i]??m.L)}`}));
+    if(m.type==='牆'){const sh=m.sh||[0,0];g.forEach((s,i)=>it.push({k:'牆',src:m,i,a:[s[0][0]+sh[0],s[0][1]+sh[1]],b:[s[1][0]+sh[0],s[1][1]+sh[1]],w:num(m.b,0.2),lab:m.pos==='女兒牆'?'女兒牆':m.code,sub:`t${Math.round(num(m.b,0)*100)} L${fm(m.lens?.[i]??m.L)}`}))}});
   // 計算編號：每層依類別（版、柱、樑、牆、其他）由上而下、由左而右編號，圖上與算式表用同一個號碼對照
   const pos=g=>{if(!g)return null;const q=Array.isArray(g[0]?.[0])?g[0]:g;const c=Array.isArray(q[0])?[(q[0][0]+q[q.length-1][0])/2,(q[0][1]+q[q.length-1][1])/2]:q;return c};
   const ord=(a,b)=>{const pa=a.p,pb=b.p;if(!pa||!pb)return (pa?-1:0)-(pb?-1:0);const dy=Math.round(pb[1])-Math.round(pa[1]);return dy||pa[0]-pb[0]};
   const ids=new Map();const num_=(arr,pre)=>arr.sort(ord).forEach((x,i)=>ids.set(x.o,pre+(i+1)));
   num_(sl.map(o=>({o,p:o.geo?centroid(o.geo.pts):null})),'版');
-  [['柱',m=>m.type==='柱'],['樑',m=>m.type==='樑'],['牆',m=>m.type==='牆'&&m.kind!=='stair'],['梯',m=>m.kind==='stair'],['項',m=>m.type==='其他']].forEach(([pre,fn])=>num_(ms.filter(fn).map(o=>({o,p:pos(o.geo&&o.geo.length?(o.type==='柱'?o.geo[0]:o.geo[0]):null)})),pre));
-  it.forEach(o=>{o.id=ids.get(o.src)});
+  // 柱、樑、牆每一支各自編號（同一列數量 n 支就有 n 個號碼），表上該列列出全部號碼
+  const inst=new Map();
+  [['柱',m=>m.type==='柱'],['樑',m=>m.type==='樑'],['牆',m=>m.type==='牆'&&m.kind!=='stair']].forEach(([pre,fn])=>{const arr=[];ms.filter(fn).forEach(o=>{const g=o.geo&&o.geo.length?o.geo:[null];g.forEach((q,i)=>arr.push({o,i,p:pos(q)}))});
+    arr.sort(ord).forEach((x,k)=>{const id=pre+(k+1);inst.set(x.o.id+'|'+x.i,id);if(!ids.has(x.o))ids.set(x.o,[]);ids.get(x.o).push(id)})});
+  ms.forEach(m=>{const a=ids.get(m);if(Array.isArray(a))ids.set(m,a.sort((u,v)=>+u.replace(/\D/g,'')- +v.replace(/\D/g,'')).join('、'))});
+  [['梯',m=>m.kind==='stair'],['項',m=>m.type==='其他']].forEach(([pre,fn])=>num_(ms.filter(fn).map(o=>({o,p:pos(o.geo&&o.geo.length?o.geo[0]:null)})),pre));
+  it.forEach(o=>{o.id=o.i!=null&&o.src?inst.get(o.src.id+'|'+o.i)||ids.get(o.src):ids.get(o.src)});
   if(!ms.some(m=>m.type==='柱'))p.drawings.forEach(d=>(d.bldg===b&&d.refCols?.[f]||[]).forEach(c=>it.push({k:'柱',ref:true,pts:c.pts,c:centroid(c.pts),lab:c.code,sub:`${Math.round(num(c.b,0)*100)}×${Math.round(num(c.h,0)*100)}（位置）`})));
   const pts=it.flatMap(o=>o.pts||[o.a,o.b]);
   const bb=pts.length?bbox(pts):null;
@@ -1612,7 +1619,7 @@ function plotTable(p,f,b){
   const D=plotData(p,f,b);let tf=0,tc=0;
   const rows=[...D.sl.map(s=>{const c=slabCalc(s);tf+=c.real;tc+=c.conc;return [D.ids.get(s)||'',`${s.code}-${s.no}`,s.noForm?'1樓版超出開挖範圍，直接落地灌漿，不組模':`原始 ${s.orig||0}　封模 ${s.seal||0}　扣牆 ${s.wall||0}　扣柱 ${s.col||0}`,c.real,s.noConc?'已計入 1樓地板':`${f2(c.o)}×${fm(c.t)}`,c.conc]}),
     ...D.ms.map(m=>{const c=memCalc(m,p);tf+=c.form;tc+=c.conc;return [D.ids.get(m)||'',`${m.type==='其他'||m.kind==='stair'?'':m.type+' '}${m.code}${m.pos?'（'+m.pos+'）':''}${num(m.n,1)!==1?' ×'+num(m.n,1):''}`,c.ft,c.form,c.ct,c.conc]})];
-  const io=x=>{const m=String(x).match(/^(\D+)(\d+)$/);return m?['版柱樑牆梯項'.indexOf(m[1])*1e4+ +m[2]]:[9e9]};rows.sort((a,b)=>io(a[0])-io(b[0]));
+  const io=x=>{const m=String(x).match(/^(\D+)(\d+)/);return m?['版柱樑牆梯項'.indexOf(m[1])*1e4+ +m[2]]:[9e9]};rows.sort((a,b)=>io(a[0])-io(b[0]));
   return `<table class="plot-tbl"><thead><tr><th>編號</th><th>構件</th><th>模板算式</th><th>模板 m²</th><th>混凝土算式</th><th>混凝土 m³</th></tr></thead><tbody>${rows.map(r=>`<tr><td class="id">${esc(r[0])}</td><td>${esc(r[1])}</td><td class="f">${esc(r[2])}</td><td class="n">${f2(r[3])}</td><td class="f">${esc(r[4])}</td><td class="n">${f2(r[5])}</td></tr>`).join('')}
   <tr class="sub"><td colspan="3">${esc(f)} 層小計</td><td class="n">${f2(tf)}</td><td></td><td class="n">${f2(tc)}</td></tr></tbody></table>`;
 }
@@ -1866,7 +1873,7 @@ function download(name,data,type){const a=document.createElement('a');a.href=URL
 })();
 
 /* 新版本提示：網站版才有，按「更新」才重新載入 */
-const BUILD='20261026073114';
+const BUILD='20261026074823';
 function checkUpdate(){
   if(!BUILD||BUILD.startsWith('__')||!/^https?:/.test(location.protocol))return;
   fetch('version.json?t='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{
