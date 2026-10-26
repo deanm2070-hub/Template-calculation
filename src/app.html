@@ -150,8 +150,9 @@ table.rep tr.click:hover td{background:#eef1ff}
 .guide-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:14px}
 .gcard{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:8px;min-width:0}
 .gcard svg{width:100%;height:auto;max-width:100%}
-.plot-wrap{overflow:auto;border:1px solid var(--line);border-radius:8px;background:#fff;max-height:78vh}
-.plot-wrap svg{width:100%;height:auto;display:block}
+.plot-wrap{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:8px;background:#fff;height:min(78vh,900px);min-height:320px;touch-action:none;cursor:grab}
+.plot-wrap svg{width:100%;height:100%;display:block}
+.plot-tbl td.id{font-weight:700;color:#c05621;white-space:nowrap}
 .plot-tbl{border-collapse:collapse;font-size:12.5px;width:100%;background:var(--surface)}
 .plot-tbl th,.plot-tbl td{border:1px solid var(--line);padding:4px 6px;vertical-align:top}
 .plot-tbl th{background:var(--surface2);white-space:nowrap}
@@ -648,7 +649,9 @@ function recognize(ents,d,P){
       c.pos=miss===0?'中柱':miss===1?'邊柱':'角柱'});
     beams.forEach(b=>{const dx=b.p1[0]-b.p0[0],dy=b.p1[1]-b.p0[1],L=Math.hypot(dx,dy)||1,nx=-dy/L,ny=dx/L,os=[0.1,0.3,0.6,1.0].map(v=>(b.w/2+v)/k);
       let A=0,B=0;[0.25,0.5,0.75].forEach(t=>{const m=[b.p0[0]+dx*t,b.p0[1]+dy*t];if(os.some(o=>inSlab([m[0]+nx*o,m[1]+ny*o])))A++;if(os.some(o=>inSlab([m[0]-nx*o,m[1]-ny*o])))B++});
-      b.edge=(A===0)!==(B===0)});
+      b.edge=(A===0)!==(B===0);
+      // 梁兩側沒有樓版的長度（開口、樓梯間、外側）：這段側模高度不扣版厚
+      const N=40,o3=[0.1,0.3,0.6].map(v=>(b.w/2+v)/k);b.noSl=[1,-1].map(sg=>{let c=0;for(let i=0;i<N;i++){const t=(i+0.5)/N,m=[b.p0[0]+dx*t,b.p0[1]+dy*t];if(!o3.some(o=>inSlab([m[0]+nx*o*sg,m[1]+ny*o*sg])))c++}const v=r2(c/N*b.L);return v<0.3?0:v})}); // 柱邊、版角的零碎取樣不算
   }
   // 柱的梁柱接頭：接到柱的每支梁，扣 梁寬×(梁深−版厚)
   colsF.forEach(c=>{const bb=bbox(c.pts),m=0.2/k;c.jt=beams.filter(b=>[b.p0,b.p1].some(p=>p[0]>=bb[0]-m&&p[0]<=bb[2]+m&&p[1]>=bb[1]-m&&p[1]<=bb[3]+m)).map(b=>[b.b,b.h])});
@@ -931,8 +934,9 @@ function memCalc(m,P){
     // 基礎版：長×寬×基礎版厚；1 樓地板：1 樓面積×版厚。不組模
     const t=m.kind==='raft'?raftT(P):num(P.slabT,0.15),A=num(m.A,0),op=m.kind==='slab1'?num(m.open,0):0;conc=(A-op)*t;ct=op?`(${m.dim||fm(A)} − 電梯坑${fm(op)})×${fm(t)}`:`${m.dim||fm(A)}×${fm(t)}`;ft='—'}
   else if(m.type==='梁'){const hs=r2(h-ts);const side=`2×${fm(hs)}`;const sv=2*hs;
-    // 梁底下有牆的長度，梁底模扣 牆厚×長度
-    form=(b+sv)*L*n-ded;conc=b*h*L*n;ft=`(${fm(b)}+${side})×${fm(L)}${n!==1?'×'+n:''}`;ct=`${fm(b)}×${fm(h)}×${fm(L)}${n!==1?'×'+n:''}`;if(ded)ft+=m.dedf?` − (${m.dedf})`:` − ${fm(ded)}`}
+    // 梁底下有牆的長度，梁底模扣 牆厚×長度；梁側沒有樓版的長度（開口、樓梯間、外側），側模高度不扣版厚：再加 版厚×無版長度
+    const ns=(m.ns||[]).map(x=>num(x,0)).filter(x=>x>0),nl=ns.reduce((a,x)=>a+x,0);
+    form=((b+sv)*L+ts*nl)*n-ded;conc=b*h*L*n;ft=nl?`((${fm(b)}+${side})×${fm(L)} + ${fm(ts)}×${ns.length>1?'('+ns.map(fm).join('+')+')':fm(nl)})${n!==1?'×'+n:''}`:`(${fm(b)}+${side})×${fm(L)}${n!==1?'×'+n:''}`;ct=`${fm(b)}×${fm(h)}×${fm(L)}${n!==1?'×'+n:''}`;if(ded)ft+=m.dedf?` − (${m.dedf})`:` − ${fm(ded)}`}
   else if(m.kind==='stair'){
     // 樓梯：斜底版 = 斜版長×梯寬；踏步立面 = 級高×梯寬×階數；混凝土 = 斜版長×梯寬×斜版厚 ＋ 階數×級高×級深/2×梯寬
     const k=num(m.k,0),td=num(m.td,0.21),ns=num(m.n,stairN(P)),nn=ns!==1?'×'+ns:'',Ls=m.Lf&&Math.abs(evalExpr(m.Lf)-L)<0.01&&/\+/.test(m.Lf)?`(${m.Lf})`:fm(L);
@@ -1027,7 +1031,7 @@ function applyRecog(P,d,R){
       (c.jt||[]).forEach(([bw,bh])=>{const hs=r2(bh-tsD);if(hs<=0)return;const kk=fm(bw)+'×'+fm(hs);g.jt[kk]=(g.jt[kk]||0)+1});g.geo.push(c.c.map(v=>v*d.unit));(g.shp=g.shp||[]).push(c.pts.map(q=>[q[0]*d.unit,q[1]*d.unit]))});
     // 同編號、同尺寸、同跨長的梁合為一列，以數量計（與圖面每跨一個標註對得起來）
     R.beams.filter(on).forEach(b=>{if(isF(f)&&b.perim!=null)b.edge=b.perim;const fc=isF(f)?(b.edge?[b.pitL?.[b.outSide===1?1:0]||0]:(b.pitL||[0,0])):null,pk=fc&&b.dP?fc.map(x=>r2(x)):null;
-      const key=`B|${b.code}|${b.b}|${b.h}|${b.h2}|${b.edge?1:0}|${b.L}|${pk?pk.join(','):''}`;if(!grp.has(key))grp.set(key,{type:'梁',code:b.code,b:b.b,h:b.h,h2:b.h2||null,...(pk?{pit:pk,dP:b.dP,hN:b.hN}:{}),edge:!!b.edge,pos:(b.edge?(isF(f)?'周邊單面':'邊梁'):(isF(f)?'中間雙面':''))+(b.h2?` 深${Math.round(b.h*100)}/${Math.round(b.h2*100)}`:''),L:b.L,n:0,lens:[],geo:[]});const g=grp.get(key);g.n++;g.lens.push(b.L);g.geo.push([b.p0.map(v=>v*d.unit),b.p1.map(v=>v*d.unit)])});
+      const ns=!isF(f)&&b.noSl&&b.noSl[0]+b.noSl[1]>=0.05?b.noSl.slice().sort((x,y)=>y-x):null;const key=`B|${b.code}|${b.b}|${b.h}|${b.h2}|${b.edge?1:0}|${b.L}|${pk?pk.join(','):''}|${ns?ns.join(','):''}`;if(!grp.has(key))grp.set(key,{type:'梁',code:b.code,b:b.b,h:b.h,h2:b.h2||null,...(ns?{ns}:{}),...(pk?{pit:pk,dP:b.dP,hN:b.hN}:{}),edge:!!b.edge,pos:(b.edge?(isF(f)?'周邊單面':'邊梁'):(isF(f)?'中間雙面':''))+(b.h2?` 深${Math.round(b.h*100)}/${Math.round(b.h2*100)}`:''),L:b.L,n:0,lens:[],geo:[]});const g=grp.get(key);g.n++;g.lens.push(b.L);g.geo.push([b.p0.map(v=>v*d.unit),b.p1.map(v=>v*d.unit)])});
     if(isF(f)&&d.kind!=='arch')(R.outl||[]).filter(on).forEach((o,i)=>{const dim=o.rect?`${fm(o.Lx)}×${fm(o.Ly)}`:fm(o.A);
       P.members.push({id:uid(),bldg:d.bldg,floor:f,src:d.id,type:'其他',kind:'raft',code:'基礎版',A:o.A,dim,fx:'',cx:''});
       const pz=(R.pits||[]).filter(on),op=r2(pz.reduce((a,q)=>a+q.Ai,0));
@@ -1144,7 +1148,10 @@ function render(){
   $('#back').hidden=!(S.view==='project'&&P());
   if(S.view==='projects'||!P()){S.view='projects';$('#crumb').textContent='專案列表';main.innerHTML=viewProjects();return}
   const p=P();$('#crumb').textContent=`${p.code}　${p.name}`;
+  // 分頁列重畫後保持原本的橫向捲動位置，並確保目前的分頁看得到
+  const tl=main.querySelector('.tabs')?.scrollLeft||0;
   main.innerHTML=viewProject(p);
+  {const tb=main.querySelector('.tabs');if(tb){tb.scrollLeft=tl;const on=tb.querySelector('[aria-selected="true"]');if(on){const r=on.getBoundingClientRect(),R=tb.getBoundingClientRect();if(r.left<R.left)tb.scrollLeft-=R.left-r.left+8;else if(r.right>R.right)tb.scrollLeft+=r.right-R.right+8}}}
   afterRender();
   if(S.tab==='draw')mountCad();
 }
@@ -1154,6 +1161,7 @@ function afterRender(){
     t.querySelectorAll('tbody tr').forEach(tr=>[...tr.children].forEach((td,i)=>{if(td.hasAttribute('colspan'))return;td.dataset.label=hs[i]||'';
       if(!td.innerHTML.trim())td.classList.add('blank');if(td.querySelector('input.w10,input.w14')||td.querySelector('.row'))td.classList.add('wide')}))});
   fitSheet();
+  if($('#plotBox'))plotPZ.init($('#plotBox'));
 }
 function fitSheet(){const sh=$('#sheet');if(!sh)return;sh.style.zoom='';const box=sh.parentElement;
   if(window.innerWidth>700){box.classList.remove('sheet-fit');return}
@@ -1491,30 +1499,37 @@ function viewGuide(p){
 /* ---------- 出圖：計算導引施工圖 ----------
    每層一張：版（版編號-版內編、真實模板）、柱、梁（編號 寬×深 跨長）、牆，座標取自結構圖，
    牆由建築圖對位到結構圖；下方附該層每個構件的算式與數量，可列印成 PDF、下載 PNG 或 DXF（疊在原圖上比對）。 */
-const PLOT_C={版:'#2b6cb0',柱:'#c05621',梁:'#c53030',梁中:'#2b3fae',牆:'#4a5568',字:'#1a202c'};
+const PLOT_C={號:'#dd6b20',版:'#2b6cb0',柱:'#c05621',梁:'#c53030',梁中:'#2b3fae',牆:'#4a5568',字:'#1a202c'};
 function plotData(p,f,b){
   const sl=p.slabs.filter(s=>s.floor===f&&s.bldg===b),ms=p.members.filter(m=>m.floor===f&&m.bldg===b);
   const it=[];
-  sl.forEach(s=>{if(s.geo)it.push({k:'版',pts:s.geo.pts,lab:`${s.code}-${s.no}`,sub:`${f2(slabCalc(s).real)}㎡`})});
+  sl.forEach(s=>{if(s.geo)it.push({k:'版',src:s,pts:s.geo.pts,lab:`${s.code}-${s.no}`,sub:`${f2(slabCalc(s).real)}㎡`})});
   ms.forEach(m=>{const g=m.geo||[];
-    if(m.kind==='pit'){const R4=b=>[[b[0],b[1]],[b[2],b[1]],[b[2],b[3]],[b[0],b[3]]];g.forEach(bb=>it.push({k:'坑',pts:R4(bb),lab:'電梯坑加深區',sub:`加深 ${fm(m.d)}　${f2(memCalc(m,p).conc)}m³`}));(m.inner||[]).forEach(bb=>it.push({k:'坑內',pts:R4(bb)}))}
+    if(m.kind==='pit'){const R4=b=>[[b[0],b[1]],[b[2],b[1]],[b[2],b[3]],[b[0],b[3]]];g.forEach(bb=>it.push({k:'坑',src:m,pts:R4(bb),lab:'電梯坑加深區',sub:`加深 ${fm(m.d)}　${f2(memCalc(m,p).conc)}m³`}));(m.inner||[]).forEach(bb=>it.push({k:'坑內',pts:R4(bb)}))}
     if(m.type==='柱')g.forEach((c,i)=>{const q=m.shp&&m.shp[i];const hb=num(m.b,0.5)/2,hh=num(m.h,0.5)/2;
-      it.push({k:'柱',pts:q||[[c[0]-hb,c[1]-hh],[c[0]+hb,c[1]-hh],[c[0]+hb,c[1]+hh],[c[0]-hb,c[1]+hh]],c,lab:m.code,sub:`${Math.round(num(m.b,0)*100)}×${Math.round(num(m.h,0)*100)}`,circle:m.shape==='circle',D:num(m.b,0.5)})});
-    if(m.type==='梁')g.forEach((s,i)=>it.push({k:'梁',a:s[0],b:s[1],w:num(m.b,0.3),edge:!!m.edge,lab:m.code,sub:`${Math.round(num(m.b,0)*100)}×${Math.round(num(m.h,0)*100)}${m.h2?'/'+Math.round(m.h2*100):''} L${fm(m.lens?.[i]??m.L)}`}));
-    if(m.type==='牆'){const sh=m.sh||[0,0];g.forEach((s,i)=>it.push({k:'牆',a:[s[0][0]+sh[0],s[0][1]+sh[1]],b:[s[1][0]+sh[0],s[1][1]+sh[1]],w:num(m.b,0.2),lab:m.pos==='女兒牆'?'女兒牆':m.code,sub:`t${Math.round(num(m.b,0)*100)} L${fm(m.lens?.[i]??m.L)}`}))}});
+      it.push({k:'柱',src:m,pts:q||[[c[0]-hb,c[1]-hh],[c[0]+hb,c[1]-hh],[c[0]+hb,c[1]+hh],[c[0]-hb,c[1]+hh]],c,lab:m.code,sub:`${Math.round(num(m.b,0)*100)}×${Math.round(num(m.h,0)*100)}`,circle:m.shape==='circle',D:num(m.b,0.5)})});
+    if(m.type==='梁')g.forEach((s,i)=>it.push({k:'梁',src:m,a:s[0],b:s[1],w:num(m.b,0.3),edge:!!m.edge,lab:m.code,sub:`${Math.round(num(m.b,0)*100)}×${Math.round(num(m.h,0)*100)}${m.h2?'/'+Math.round(m.h2*100):''} L${fm(m.lens?.[i]??m.L)}`}));
+    if(m.type==='牆'){const sh=m.sh||[0,0];g.forEach((s,i)=>it.push({k:'牆',src:m,a:[s[0][0]+sh[0],s[0][1]+sh[1]],b:[s[1][0]+sh[0],s[1][1]+sh[1]],w:num(m.b,0.2),lab:m.pos==='女兒牆'?'女兒牆':m.code,sub:`t${Math.round(num(m.b,0)*100)} L${fm(m.lens?.[i]??m.L)}`}))}});
+  // 計算編號：每層依類別（版、柱、梁、牆、其他）由上而下、由左而右編號，圖上與算式表用同一個號碼對照
+  const pos=g=>{if(!g)return null;const q=Array.isArray(g[0]?.[0])?g[0]:g;const c=Array.isArray(q[0])?[(q[0][0]+q[q.length-1][0])/2,(q[0][1]+q[q.length-1][1])/2]:q;return c};
+  const ord=(a,b)=>{const pa=a.p,pb=b.p;if(!pa||!pb)return (pa?-1:0)-(pb?-1:0);const dy=Math.round(pb[1])-Math.round(pa[1]);return dy||pa[0]-pb[0]};
+  const ids=new Map();const num_=(arr,pre)=>arr.sort(ord).forEach((x,i)=>ids.set(x.o,pre+(i+1)));
+  num_(sl.map(o=>({o,p:o.geo?centroid(o.geo.pts):null})),'版');
+  [['柱',m=>m.type==='柱'],['梁',m=>m.type==='梁'],['牆',m=>m.type==='牆'&&m.kind!=='stair'],['梯',m=>m.kind==='stair'],['項',m=>m.type==='其他']].forEach(([pre,fn])=>num_(ms.filter(fn).map(o=>({o,p:pos(o.geo&&o.geo.length?(o.type==='柱'?o.geo[0]:o.geo[0]):null)})),pre));
+  it.forEach(o=>{o.id=ids.get(o.src)});
   const pts=it.flatMap(o=>o.pts||[o.a,o.b]);
   const bb=pts.length?bbox(pts):null;
-  return {sl,ms,it,bb};
+  return {sl,ms,it,bb,ids};
 }
 function band(a,b,w){const dx=b[0]-a[0],dy=b[1]-a[1],L=Math.hypot(dx,dy)||1,nx=-dy/L*w/2,ny=dx/L*w/2;return [[a[0]+nx,a[1]+ny],[b[0]+nx,b[1]+ny],[b[0]-nx,b[1]-ny],[a[0]-nx,a[1]-ny]]}
 function plotSVG(p,f,b,opt={}){
   const D=plotData(p,f,b);if(!D.bb)return '';
   const pad=1.2,[x0,y0,x1,y1]=D.bb,W=x1-x0+pad*2,H=y1-y0+pad*2,X=v=>(v-x0+pad),Y=v=>(y1-v+pad),fs=Math.max(0.16,Math.min(0.3,Math.max(W,H)/90));
   const P2=q=>q.map(v=>`${X(v[0]).toFixed(3)},${Y(v[1]).toFixed(3)}`).join(' ');
-  const T=(x,y,t,o={})=>`<text x="${x.toFixed(3)}" y="${y.toFixed(3)}" font-size="${(o.s||fs).toFixed(3)}" fill="${o.c||PLOT_C.字}" text-anchor="middle"${o.rot?` transform="rotate(${o.rot} ${x.toFixed(3)} ${y.toFixed(3)})"`:''}${o.w?` font-weight="${o.w}"`:''}>${esc(t)}</text>`;
+  const T=(x,y,t,o={})=>`<text x="${x.toFixed(3)}" y="${y.toFixed(3)}" font-size="${(o.s||fs).toFixed(3)}" fill="${o.c||PLOT_C.字}" text-anchor="middle"${o.rot?` transform="rotate(${o.rot} ${x.toFixed(3)} ${y.toFixed(3)})"`:''}${o.w?` font-weight="${o.w}"`:''}>${o.id?`<tspan fill="${PLOT_C.號}" font-weight="800">${esc(o.id)}</tspan> `:''}${esc(t)}</text>`;
   let g='';
-  D.it.filter(o=>o.k==='版').forEach(o=>{const c=centroid(o.pts);g+=`<polygon points="${P2(o.pts)}" fill="rgba(66,133,244,.10)" stroke="${PLOT_C.版}" stroke-width="${fs*0.12}" stroke-dasharray="${fs*0.5} ${fs*0.3}"/>`+T(X(c[0]),Y(c[1])-fs*0.15,o.lab,{c:PLOT_C.版,w:700})+T(X(c[0]),Y(c[1])+fs*1.05,o.sub,{c:PLOT_C.版,s:fs*0.85})});
-  D.it.filter(o=>o.k==='坑'||o.k==='坑內').forEach(o=>{const bb=bbox(o.pts);g+=`<polygon points="${P2(o.pts)}" fill="${o.k==='坑'?'rgba(214,158,46,.12)':'none'}" stroke="#b7791f" stroke-width="${fs*0.1}" stroke-dasharray="${fs*0.4} ${fs*0.25}"/>`+(o.k==='坑內'?`<path d="M${X(bb[0])},${Y(bb[1])}L${X(bb[2])},${Y(bb[3])}M${X(bb[0])},${Y(bb[3])}L${X(bb[2])},${Y(bb[1])}" stroke="#b7791f" stroke-width="${fs*0.06}"/>`:T(X((bb[0]+bb[2])/2),Y(bb[1])+fs*1.2,`${o.lab} ${o.sub}`,{c:'#975a16',s:fs*0.85,w:700}))});
+  D.it.filter(o=>o.k==='版').forEach(o=>{const c=centroid(o.pts);g+=`<polygon points="${P2(o.pts)}" fill="rgba(66,133,244,.10)" stroke="${PLOT_C.版}" stroke-width="${fs*0.12}" stroke-dasharray="${fs*0.5} ${fs*0.3}"/>`+T(X(c[0]),Y(c[1])-fs*0.15,o.lab,{c:PLOT_C.版,w:700,id:o.id})+T(X(c[0]),Y(c[1])+fs*1.05,o.sub,{c:PLOT_C.版,s:fs*0.85})});
+  D.it.filter(o=>o.k==='坑'||o.k==='坑內').forEach(o=>{const bb=bbox(o.pts);g+=`<polygon points="${P2(o.pts)}" fill="${o.k==='坑'?'rgba(214,158,46,.12)':'none'}" stroke="#b7791f" stroke-width="${fs*0.1}" stroke-dasharray="${fs*0.4} ${fs*0.25}"/>`+(o.k==='坑內'?`<path d="M${X(bb[0])},${Y(bb[1])}L${X(bb[2])},${Y(bb[3])}M${X(bb[0])},${Y(bb[3])}L${X(bb[2])},${Y(bb[1])}" stroke="#b7791f" stroke-width="${fs*0.06}"/>`:T(X((bb[0]+bb[2])/2),Y(bb[1])+fs*1.2,`${o.lab} ${o.sub}`,{c:'#975a16',s:fs*0.85,w:700,id:o.id}))});
   D.it.filter(o=>o.k==='牆').forEach(o=>{g+=`<polygon points="${P2(band(o.a,o.b,o.w))}" fill="rgba(74,85,104,.35)" stroke="${PLOT_C.牆}" stroke-width="${fs*0.08}"/>`});
   D.it.filter(o=>o.k==='梁').forEach(o=>{const c=o.edge?PLOT_C.梁:PLOT_C.梁中;g+=`<polygon points="${P2(band(o.a,o.b,o.w))}" fill="${c}22" stroke="${c}" stroke-width="${fs*0.1}"/>`});
   D.it.filter(o=>o.k==='柱').forEach(o=>{g+=o.circle?`<circle cx="${X(o.c[0])}" cy="${Y(o.c[1])}" r="${o.D/2}" fill="${PLOT_C.柱}55" stroke="${PLOT_C.柱}" stroke-width="${fs*0.1}"/>`:`<polygon points="${P2(o.pts)}" fill="${PLOT_C.柱}55" stroke="${PLOT_C.柱}" stroke-width="${fs*0.1}"/>`});
@@ -1522,30 +1537,51 @@ function plotSVG(p,f,b,opt={}){
   D.it.filter(o=>o.k==='梁'||o.k==='牆').forEach(o=>{const m=[(o.a[0]+o.b[0])/2,(o.a[1]+o.b[1])/2];let ang=Math.atan2(-(o.b[1]-o.a[1]),o.b[0]-o.a[0])*180/Math.PI;if(ang>90)ang-=180;if(ang<=-90)ang+=180;
     const wl=o.k==='牆',r=ang*Math.PI/180,off=(o.w/2+fs*(wl?0.95:0.35))*(wl?-1:1),nx=Math.sin(r)*off,ny=-Math.cos(r)*off,c=wl?PLOT_C.牆:(o.edge?PLOT_C.梁:PLOT_C.梁中);
     // 牆標在另一側，避免與上方的梁標註重疊
-    g+=T(X(m[0])+nx,Y(m[1])+ny,`${o.lab} ${o.sub}`,{c,rot:ang,s:fs*(wl?0.75:0.9),w:wl?400:700})});
-  D.it.filter(o=>o.k==='柱').forEach(o=>{const bb2=bbox(o.pts);g+=T(X(bb2[2])+fs*1.6,Y(bb2[1])+fs*0.9,`${o.lab} ${o.sub}`,{c:PLOT_C.柱,s:fs*0.85,w:700})});
+    g+=T(X(m[0])+nx,Y(m[1])+ny,`${o.lab} ${o.sub}`,{c,rot:ang,s:fs*(wl?0.75:0.9),w:wl?400:700,id:o.id})});
+  D.it.filter(o=>o.k==='柱').forEach(o=>{const bb2=bbox(o.pts);g+=T(X(bb2[2])+fs*1.6,Y(bb2[1])+fs*0.9,`${o.lab} ${o.sub}`,{c:PLOT_C.柱,s:fs*0.85,w:700,id:o.id})});
   const head=`${p.code?p.code+' ':''}${p.name}　${b} 棟　${f} 層　計算導引施工圖`;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 ${-fs*2.6} ${W.toFixed(3)} ${(H+fs*2.6).toFixed(3)}" ${opt.px?`width="${Math.round(W*opt.px)}" height="${Math.round((H+fs*2.6)*opt.px)}"`:''} font-family="Noto Sans TC,PingFang TC,Microsoft JhengHei,sans-serif" class="plot-svg"><rect x="0" y="${-fs*2.6}" width="${W}" height="${H+fs*2.6}" fill="#fff"/>
   <text x="${fs*0.6}" y="${-fs*0.9}" font-size="${fs*1.3}" font-weight="700" fill="${PLOT_C.字}">${esc(head)}</text>${g}</svg>`;
 }
 function plotTable(p,f,b){
   const D=plotData(p,f,b);let tf=0,tc=0;
-  const rows=[...D.sl.map(s=>{const c=slabCalc(s);tf+=c.real;tc+=c.conc;return [`版 ${s.code}-${s.no}`,`原始 ${s.orig||0}　封模 ${s.seal||0}　扣牆 ${s.wall||0}　扣柱 ${s.col||0}`,c.real,s.noConc?'已計入 1樓地板':`${f2(c.o)}×${fm(c.t)}`,c.conc]}),
-    ...D.ms.map(m=>{const c=memCalc(m,p);tf+=c.form;tc+=c.conc;return [`${m.type} ${m.code}${m.pos?'（'+m.pos+'）':''}${num(m.n,1)!==1?' ×'+num(m.n,1):''}`,c.ft,c.form,c.ct,c.conc]})];
-  return `<table class="plot-tbl"><thead><tr><th>構件</th><th>模板算式</th><th>模板 m²</th><th>混凝土算式</th><th>混凝土 m³</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r[0])}</td><td class="f">${esc(r[1])}</td><td class="n">${f2(r[2])}</td><td class="f">${esc(r[3])}</td><td class="n">${f2(r[4])}</td></tr>`).join('')}
-  <tr class="sub"><td colspan="2">${esc(f)} 層小計</td><td class="n">${f2(tf)}</td><td></td><td class="n">${f2(tc)}</td></tr></tbody></table>`;
+  const rows=[...D.sl.map(s=>{const c=slabCalc(s);tf+=c.real;tc+=c.conc;return [D.ids.get(s)||'',`${s.code}-${s.no}`,`原始 ${s.orig||0}　封模 ${s.seal||0}　扣牆 ${s.wall||0}　扣柱 ${s.col||0}`,c.real,s.noConc?'已計入 1樓地板':`${f2(c.o)}×${fm(c.t)}`,c.conc]}),
+    ...D.ms.map(m=>{const c=memCalc(m,p);tf+=c.form;tc+=c.conc;return [D.ids.get(m)||'',`${m.type==='其他'||m.kind==='stair'?'':m.type+' '}${m.code}${m.pos?'（'+m.pos+'）':''}${num(m.n,1)!==1?' ×'+num(m.n,1):''}`,c.ft,c.form,c.ct,c.conc]})];
+  const io=x=>{const m=String(x).match(/^(\D+)(\d+)$/);return m?['版柱梁牆梯項'.indexOf(m[1])*1e4+ +m[2]]:[9e9]};rows.sort((a,b)=>io(a[0])-io(b[0]));
+  return `<table class="plot-tbl"><thead><tr><th>編號</th><th>構件</th><th>模板算式</th><th>模板 m²</th><th>混凝土算式</th><th>混凝土 m³</th></tr></thead><tbody>${rows.map(r=>`<tr><td class="id">${esc(r[0])}</td><td>${esc(r[1])}</td><td class="f">${esc(r[2])}</td><td class="n">${f2(r[3])}</td><td class="f">${esc(r[4])}</td><td class="n">${f2(r[5])}</td></tr>`).join('')}
+  <tr class="sub"><td colspan="3">${esc(f)} 層小計</td><td class="n">${f2(tf)}</td><td></td><td class="n">${f2(tc)}</td></tr></tbody></table>`;
 }
 function plotFloors(p,b){return floorsDesc(p).filter(f=>p.slabs.some(s=>s.floor===f&&s.bldg===b)||p.members.some(m=>m.floor===f&&m.bldg===b))}
+/* 出圖縮放：改 SVG viewBox；兩指縮放、拖曳平移、滾輪縮放，同一樓層切回來保留視角 */
+const plotPZ={vb:null,key:null,svg:null,box:null,
+  init(box){const svg=box.querySelector('svg');if(!svg)return;this.box=box;this.svg=svg;const b0=svg.viewBox.baseVal;this.v0=[b0.x,b0.y,b0.width,b0.height];
+    if(this.key!==box.dataset.key||!this.vb){this.key=box.dataset.key;this.vb=this.v0.slice()}this.apply();
+    const pts=new Map();let drag=null,pinch=null;
+    const mid=()=>{const a=[...pts.values()];return {x:(a[0].x+a[1].x)/2,y:(a[0].y+a[1].y)/2,d:Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)}};
+    box.onpointerdown=e=>{pts.set(e.pointerId,{x:e.clientX,y:e.clientY});box.setPointerCapture(e.pointerId);
+      if(pts.size===2){const m=mid();pinch={d:m.d||1,vb:this.vb.slice(),w:this.world(m.x,m.y),x:m.x,y:m.y};drag=null}else if(pts.size===1)drag={x:e.clientX,y:e.clientY,vb:this.vb.slice()}};
+    box.onpointermove=e=>{if(!pts.has(e.pointerId))return;pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+      if(pinch&&pts.size===2){const m=mid();this.vb=pinch.vb.slice();this.zoom(m.d/pinch.d,pinch.x,pinch.y,true);const s=this.sc();this.vb[0]-=(m.x-pinch.x)/s;this.vb[1]-=(m.y-pinch.y)/s;this.apply();return}
+      if(!drag)return;const s=this.sc();this.vb[0]=drag.vb[0]-(e.clientX-drag.x)/s;this.vb[1]=drag.vb[1]-(e.clientY-drag.y)/s;this.apply()};
+    const up=e=>{pts.delete(e.pointerId);if(pts.size<2)pinch=null;drag=null};box.onpointerup=up;box.onpointercancel=up;
+    box.onwheel=e=>{e.preventDefault();this.zoom(Math.exp(-e.deltaY*0.0015),e.clientX,e.clientY)}},
+  sc(){const r=this.box.getBoundingClientRect();return Math.min(r.width/this.vb[2],r.height/this.vb[3])},
+  world(cx,cy){const r=this.box.getBoundingClientRect(),s=this.sc(),ox=(r.width-this.vb[2]*s)/2,oy=(r.height-this.vb[3]*s)/2;return [this.vb[0]+(cx-r.left-ox)/s,this.vb[1]+(cy-r.top-oy)/s]},
+  zoom(f,cx,cy,quiet){if(!this.box)return;const r=this.box.getBoundingClientRect();if(cx==null){cx=r.left+r.width/2;cy=r.top+r.height/2}
+    const z=this.v0[2]/(this.vb[2]/f);if(z<0.5||z>40)return;const w=this.world(cx,cy);this.vb[2]/=f;this.vb[3]/=f;const s=this.sc(),ox=(r.width-this.vb[2]*s)/2,oy=(r.height-this.vb[3]*s)/2;
+    this.vb[0]=w[0]-(cx-r.left-ox)/s;this.vb[1]=w[1]-(cy-r.top-oy)/s;if(!quiet)this.apply()},
+  fit(){if(!this.v0)return;this.vb=this.v0.slice();this.apply()},
+  apply(){if(this.svg&&this.vb)this.svg.setAttribute('viewBox',this.vb.map(v=>v.toFixed(3)).join(' '))}};
 function viewPlot(p){
   const b=S.plotB&&p.bldgs.includes(S.plotB)?S.plotB:p.bldgs[0],fl=plotFloors(p,b);
   if(!fl.length)return `<div class="panel"><div class="empty">還沒有任何構件，先到「圖檔匯入與辨識」匯入圖檔。</div></div>`;
-  const f=S.plotF&&fl.includes(S.plotF)?S.plotF:fl[0],z=num(S.plotZ,1);
+  const f=S.plotF&&fl.includes(S.plotF)?S.plotF:fl[0];
   return `<div class="stack">
   <div class="row" style="justify-content:space-between"><div class="row"><label class="small muted" for="plotB">棟別</label><select id="plotB" data-filter="plotB">${opts(p.bldgs,b)}</select><label class="small muted" for="plotF">樓層</label><select id="plotF" data-filter="plotF">${opts(fl,f)}</select>
-   <button class="btn sm" data-act="plotz" data-k="-1" aria-label="縮小">−</button><button class="btn sm" data-act="plotz" data-k="1" aria-label="放大">＋</button></div>
+   <button class="btn sm" data-act="plotz" data-k="-1" aria-label="縮小">−</button><button class="btn sm" data-act="plotz" data-k="1" aria-label="放大">＋</button><button class="btn sm" data-act="plotz" data-k="0">全圖</button></div>
   <div class="row">${standalone?`<button class="btn" data-act="plotprint">列印／存成 PDF（全部樓層）</button><button class="btn" data-act="plotpng">下載本層圖檔 PNG</button><button class="btn" data-act="plotdxf">下載 DXF（疊原圖比對）</button>`:`<span class="small muted">在網站版可列印成 PDF、下載 PNG 與 DXF。</span>`}</div></div>
-  <div class="note small">紅色梁＝邊梁／周邊單面，藍色梁＝中間梁；版標「版編號-版內編」與真實模板；牆含女兒牆。DXF 用原圖單位與座標，可直接疊在結構圖上比對。</div>
-  <div class="plot-wrap"><div style="width:${Math.round(z*100)}%">${plotSVG(p,f,b)}</div></div>
+  <div class="note small">圖可用兩指縮放、拖曳平移（電腦用滾輪）。橘色「版1、柱1、梁1、牆1」是計算編號，對照下方算式表的同一編號檢核；同編號多處表示同一列數量。紅色梁＝邊梁／周邊單面，藍色梁＝中間梁；牆含女兒牆。DXF 用原圖單位與座標，可直接疊在結構圖上比對。</div>
+  <div class="plot-wrap" id="plotBox" data-key="${esc(b+'|'+f)}">${plotSVG(p,f,b)}</div>
   <div class="scroll">${plotTable(p,f,b)}</div></div>`;
 }
 function plotDXF(p,b){
@@ -1559,10 +1595,10 @@ function plotDXF(p,b){
     text(ly('標題'),[(D.bb[0]+D.bb[2])/2,D.bb[3]+0.8],0.4,`${p.name} ${b}棟 ${f}層 計算導引`);
     D.it.forEach(o=>{
       if(o.k==='坑'||o.k==='坑內'){poly(ly('坑'),o.pts);if(o.lab){const bb=bbox(o.pts);text(ly('坑'),[(bb[0]+bb[2])/2,bb[1]-0.35],h*0.85,`${o.lab} ${o.sub}`)}}
-      else if(o.k==='版'){poly(ly('版'),o.pts);const c=centroid(o.pts);text(ly('版'),[c[0],c[1]+0.1],h,o.lab);text(ly('版'),[c[0],c[1]-0.25],h*0.85,o.sub)}
-      else if(o.k==='柱'){poly(ly('柱'),o.pts);const bb=bbox(o.pts);text(ly('柱'),[bb[2]+0.6,bb[1]-0.25],h*0.85,`${o.lab} ${o.sub}`)}
+      else if(o.k==='版'){poly(ly('版'),o.pts);const c=centroid(o.pts);text(ly('版'),[c[0],c[1]+0.1],h,(o.id?o.id+' ':'')+o.lab);text(ly('版'),[c[0],c[1]-0.25],h*0.85,o.sub)}
+      else if(o.k==='柱'){poly(ly('柱'),o.pts);const bb=bbox(o.pts);text(ly('柱'),[bb[2]+0.6,bb[1]-0.25],h*0.85,`${o.id?o.id+' ':''}${o.lab} ${o.sub}`)}
       else{poly(ly(o.k),band(o.a,o.b,o.w));const m=[(o.a[0]+o.b[0])/2,(o.a[1]+o.b[1])/2];let ang=Math.atan2(o.b[1]-o.a[1],o.b[0]-o.a[0])*180/Math.PI;if(ang>90)ang-=180;if(ang<=-90)ang+=180;
-        const r=ang*Math.PI/180,off=o.w/2+0.12;text(ly(o.k),[m[0]-Math.sin(r)*off,m[1]+Math.cos(r)*off],h*0.9,`${o.lab} ${o.sub}`,ang)}})});
+        const r=ang*Math.PI/180,off=o.w/2+0.12;text(ly(o.k),[m[0]-Math.sin(r)*off,m[1]+Math.cos(r)*off],h*0.9,`${o.id?o.id+' ':''}${o.lab} ${o.sub}`,ang)}})});
   return ['0','SECTION','2','HEADER','9','$ACADVER','1','AC1009','9','$INSUNITS','70',String(k===0.01?5:k===0.001?4:6),'0','ENDSEC','0','SECTION','2','ENTITIES',...L,'0','ENDSEC','0','EOF'].join('\r\n');
 }
 function plotPrint(p){
@@ -1679,7 +1715,7 @@ document.addEventListener('click',async e=>{
   case 'copysum':{const {fl,F}=summary(p,S.sumB||'');const K=['版','梁','柱','牆','其他'];const LS=num(p.loss,1.1);const t=(key,title)=>{const ls=key==='form'&&LS!==1;const rows=[[title],['樓層','範圍',...K,'樓層合計',...(ls?['含損耗 ×'+LS]:[])]];const tot=K.map(()=>0);fl.forEach(f=>{const r=F[f][key];const v=K.map(k=>r[k]);v.forEach((x,i)=>tot[i]+=x);const sm=v.reduce((a,b)=>a+b,0);rows.push([f,flRange(p,f),...v.map(f2),f2(sm),...(ls?[f2(sm*LS)]:[])])});const all=tot.reduce((a,b)=>a+b,0);rows.push(['總計','',...tot.map(f2),f2(all),...(ls?[f2(all*LS)]:[])]);return rows};
     copyText([...t('form','模板分層數量統計總表 (m²)'),[],...t('conc','混凝土分層數量統計總表 (m³)')].map(r=>r.join('\t')).join('\n'));break}
   case 'print':window.print();break;
-  case 'plotz':{S.plotZ=Math.max(1,Math.min(4,num(S.plotZ,1)*(el.dataset.k==='1'?1.5:1/1.5)));render();break}
+  case 'plotz':{const k=el.dataset.k;if(k==='0')plotPZ.fit();else plotPZ.zoom(k==='1'?1.5:1/1.5);break}
   case 'plotprint':plotPrint(p);break;
   case 'plotpng':plotPNG(p);break;
   case 'plotdxf':{const b=S.plotB&&p.bldgs.includes(S.plotB)?S.plotB:p.bldgs[0];download(`${p.name||'專案'}_${b}棟_計算導引.dxf`,plotDXF(p,b),'application/dxf');break}
