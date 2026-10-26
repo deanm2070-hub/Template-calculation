@@ -57,6 +57,8 @@ button,input,select,textarea{font:inherit;color:inherit}
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--navy)}
 .top{position:fixed;top:0;left:0;right:0;z-index:9;background:var(--navy);color:#fff;display:flex;align-items:center;gap:14px;padding-bottom:6px;padding-top:calc(6px + env(safe-area-inset-top,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));flex-wrap:wrap}
 .top img{width:30px;height:auto}
+.top .back{flex:none;font:inherit;font-size:14px;font-weight:600;color:#fff;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.3);border-radius:8px;padding:6px 12px;cursor:pointer;white-space:nowrap}
+.top .back:active{background:rgba(255,255,255,.28)}
 .brand{font-family:var(--f-display);font-weight:900;letter-spacing:.08em;font-size:17px;cursor:pointer;background:none;border:0;color:#fff;padding:0}
 .top .crumb{color:rgba(220,226,255,.85);font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
 .top .sp{flex:1}
@@ -196,6 +198,7 @@ dialog::backdrop{background:rgba(5,8,30,.55)}
 </div>
 
 <header class="top" id="top" hidden>
+  <button class="back" id="back" data-act="home" hidden aria-label="返回專案列表">‹ 專案列表</button>
   <img src="data:image/webp;base64,__LOGO__" alt="">
   <button class="brand" data-act="home">築本模板工程計算</button>
   <span class="crumb" id="crumb"></span>
@@ -792,9 +795,14 @@ function reconcile(P){
    ========================================================= */
 // 藍色標題列固定在最上緣，內容往下讓出標題列高度
 {const t=document.getElementById('top'),fit=()=>document.documentElement.style.setProperty('--toph',(t.hidden?0:t.offsetHeight)+'px');new ResizeObserver(fit).observe(t);new MutationObserver(fit).observe(t,{attributes:true,attributeFilter:['hidden']})}
-function go(view){S.view=view;render()}
+function go(view){
+  // 進入專案時記一筆瀏覽紀錄，手機返回手勢／返回鍵可回到專案列表
+  if(view==='project'&&S.view!=='project'&&history.state?.v!=='project')history.pushState({v:'project'},'');
+  S.view=view;render()}
+addEventListener('popstate',()=>{if(S.view==='project'){S.cur=null;S.view='projects';render()}});
 function render(){
   const main=$('#main'),top=$('#top');main.hidden=false;top.hidden=false;
+  $('#back').hidden=!(S.view==='project'&&P());
   if(S.view==='projects'||!P()){S.view='projects';$('#crumb').textContent='專案列表';main.innerHTML=viewProjects();return}
   const p=P();$('#crumb').textContent=`${p.code}　${p.name}`;
   main.innerHTML=viewProject(p);
@@ -1202,7 +1210,7 @@ document.addEventListener('change',async e=>{
 document.addEventListener('click',async e=>{
   const el=e.target.closest('[data-act]');if(!el)return;const a=el.dataset.act,p=P();
   switch(a){
-  case 'home':S.cur=null;go('projects');break;
+  case 'home':if(history.state?.v==='project')history.back();else{S.cur=null;go('projects')}break;
   case 'open':S.cur=el.dataset.id;S.tab='draw';S.dwg=null;S.floorFilter='';S.bldgFilter='';V.hi=null;go('project');break;
   case 'sample':{const s=makeSample();S.projects.push(s);S.cur=s.id;S.tab='draw';S.dwg=null;saveAll();go('project');break}
   case 'tab':S.tab=el.dataset.k;render();window.scrollTo(0,0);break;
