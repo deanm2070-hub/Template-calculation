@@ -14,6 +14,7 @@ def build(target):
     s = s.replace("const ents=await entGet(d.id);\n  const box=$('#cadbox');",
                   "let ents=await entGet(d.id);\n  if(!ents&&p.sample){ents=parseDXF(new TextEncoder().encode(sampleDXF()).buffer);entPut(d.id,ents)}\n  const box=$('#cadbox');")
     s = s.replace('__LOGO__', base64.b64encode(rd('assets/logo.webp', 'rb')).decode())
+    s = s.replace('__SPLASHBG__', base64.b64encode(rd('assets/splash.webp', 'rb')).decode())
     glue = rd('vendor/libredwg-web/libredwg-web.js')
     assert 'export default createModule;' in glue
     glue = glue.replace('import.meta.url', 'document.baseURI').replace('export default createModule;', 'window.createModule=createModule;')
