@@ -143,6 +143,8 @@ table.rep td.real{color:#c0262d;font-weight:600}
 table.rep tr.sub td{font-weight:700}
 table.rep tr.tot td{font-weight:700;border-top:2px solid var(--paper-ink)}
 table.rep td.c{text-align:center}
+.rep-sec{margin-top:22px}.rep-sec h2{font-size:17px;margin:0 0 4px;font-family:var(--f-display);letter-spacing:.1em}.rep-sec h3{font-size:14px;margin:12px 0 0}
+@media print{.rep-sec.pb{break-before:page;page-break-before:always}}
 table.rep tr.click{cursor:pointer}
 table.rep tr.click:hover td{background:#eef1ff}
 
@@ -1436,14 +1438,31 @@ function viewRep(p){
   });
   return `<div class="stack">
   <div class="row" style="justify-content:space-between"><div class="row"><label class="small muted" for="repB">棟別</label><select id="repB" data-filter="repB">${opts(p.bldgs,b)}</select><span class="muted small">點選任一列可查看該版的計算導引圖。</span></div>
-  <div class="row"><button class="btn" data-act="copyrep">複製表格（貼到 Excel）</button>${standalone?'<button class="btn primary" data-act="xlsxrep">下載 Excel（總表＋柱樑版牆）</button><button class="btn" data-act="print">列印</button><button class="btn" data-act="csvrep">下載 CSV（版明細）</button>':''}</div></div>
+  <div class="row"><button class="btn" data-act="copyrep">複製版明細（貼到 Excel）</button>${standalone?'<button class="btn primary" data-act="xlsxrep">下載 Excel（總表＋柱樑版牆）</button><button class="btn primary" data-act="print">列印／存 PDF（整份）</button><button class="btn" data-act="csvrep">下載 CSV（版明細）</button>':''}</div></div>
   <div class="scroll"><div class="sheet" id="sheet">
     <h1>模板報表</h1>
     <div class="meta">工程代號:${esc(p.code)}　　工程名稱:${esc(p.name)}<br>印制時間:${nowStr()}<br>棟別:${esc(b)}</div>
-    ${floors.length?`<table class="rep" id="repT"><thead><tr><th rowspan="2">棟別</th><th rowspan="2">樓層</th><th rowspan="2">版編號</th><th rowspan="2">版內編</th><th colspan="10" style="letter-spacing:1.2em">版明細</th></tr>
+    ${repFullHTML(p,b,floors.length?`<table class="rep" id="repT"><thead><tr><th rowspan="2">棟別</th><th rowspan="2">樓層</th><th rowspan="2">版編號</th><th rowspan="2">版內編</th><th colspan="10" style="letter-spacing:1.2em">版明細</th></tr>
     <tr><th>原始模板</th><th>計算式</th><th>封模</th><th>計算式</th><th>扣版牆接頭</th><th>計算式</th><th>扣柱頭</th><th>計算式</th><th>扣接頭合計</th><th>真實模板</th></tr></thead>
-    <tbody>${body}<tr class="tot"><td colspan="4" class="c">合計</td><td class="n">${f2(T.o)}</td><td></td><td class="n">${f2(T.se)}</td><td></td><td class="n">${f2(T.w)}</td><td></td><td class="n">${f2(T.c)}</td><td></td><td class="n">${f2(T.ded)}</td><td class="n real">${f2(T.real)}</td></tr></tbody></table>`:'<p>此棟別尚無版資料。</p>'}
+    <tbody>${body}<tr class="tot"><td colspan="4" class="c">合計</td><td class="n">${f2(T.o)}</td><td></td><td class="n">${f2(T.se)}</td><td></td><td class="n">${f2(T.w)}</td><td></td><td class="n">${f2(T.c)}</td><td></td><td class="n">${f2(T.ded)}</td><td class="n real">${f2(T.real)}</td></tr></tbody></table>`:'<p>此棟別尚無版資料。</p>')}
   </div></div></div>`;
+}
+// 模板報表全份：總表＋柱、樑、版（版明細表＋歸在版的構件）、牆、其他，畫面、列印、PDF 都用同一份
+function repFullHTML(p,b,slabTbl){
+  const bk=repBook(p,b),get=n=>bk.find(x=>x.name===n),isB=r=>/^(合計|總計)$/.test(String(r[0]))||/層小計$/.test(String(r[1]||''));
+  const cell=(v,ci,hd)=>{if(v===''||v==null)return '<td></td>';if(typeof v==='number')return `<td class="n${/真實模板|模板 m²/.test(hd[ci]||'')?' real':''}">${/^(寬|深|長度|數量)/.test(hd[ci]||'')?esc(fm(v)):f2(v)}</td>`;return `<td class="${/算式|式$/.test(hd[ci]||'')?'f':'c'}">${esc(v)}</td>`};
+  const tbl=rows=>{const hd=rows[0];return `<table class="rep"><thead><tr>${hd.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.slice(1).map(r=>`<tr class="${String(r[0])==='合計'||String(r[0])==='總計'?'tot':isB(r)?'sub':''}">${hd.map((_,ci)=>cell(r[ci],ci,hd)).join('')}</tr>`).join('')}</tbody></table>`};
+  const sec=(t,body,first)=>`<section class="rep-sec${first?'':' pb'}"><h2>${t}</h2>${body}</section>`;
+  const S0=get('總表').rows.slice(2),cut=S0.findIndex(r=>!r.length);const fT=S0.slice(0,cut),cT=S0.slice(cut+1);
+  const sumT=x=>`<h3>${esc(x[0][0])}</h3>`+tbl(x.slice(1));
+  const ms=n=>{const sh=get(n);return sh?sh.rows.slice(2):null};
+  // 版：版明細用原本的表（可點選看導引圖）；樓梯平台、基礎版等歸版的構件另列
+  const extra=(()=>{const r=ms('版');if(!r)return '';const hd=['樓層','圖號','項目','模板算式','模板 m²','混凝土式','混凝土 m³'];const it=r.slice(1).filter(x=>x[3]===''&&x[2]&&!isB(x)).map(x=>[x[0],x[1],x[2],x[5],x[12],x[13],x[14]]);return it.length?`<h3>歸在版的其他構件（樓梯平台、基礎版等）</h3>`+tbl([hd,...it]):''})();
+  const parts=[sec('一、分層數量統計總表',sumT(fT)+sumT(cT),true)];
+  [['柱','二、柱'],['樑','三、樑']].forEach(([n,t])=>{const r=ms(n);if(r)parts.push(sec(t+' 明細',tbl(r)))});
+  parts.push(sec('四、版 明細',slabTbl+extra));
+  [['牆','五、牆'],['其他','六、其他（樓梯等）']].forEach(([n,t])=>{const r=ms(n);if(r)parts.push(sec(t+' 明細',tbl(r)))});
+  return parts.join('');
 }
 function repTSV(p,b){
   const out=[['棟別','樓層','版編號','版內編','原始模板','計算式','封模','計算式','扣版牆接頭','計算式','扣柱頭','計算式','扣接頭合計','真實模板']];
