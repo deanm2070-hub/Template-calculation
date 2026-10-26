@@ -1981,9 +1981,11 @@ function plotSVG(p,f,b,opt={}){
     D.ck.filter(c=>!c.src&&c.a).forEach(c=>{g+=`<polygon points="${P2(band(c.a,c.b,Math.max(c.w,0.1)+0.12))}" fill="rgba(255,214,0,.25)" stroke="${Y_}" stroke-width="${fs*0.18}" stroke-dasharray="${fs*0.4} ${fs*0.25}"/>`;
       const m=[(c.a[0]+c.b[0])/2,(c.a[1]+c.b[1])/2];lab+=T(X(m[0]),Y(m[1])+fs*0.35,'⚠',{c:'#b7791f',s:fs*1.1,w:700})})}
   g+=lab;
-  const head=`${p.code?p.code+' ':''}${p.name}　${b} 棟　${f} 層　計算導引施工圖`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 ${-fs*2.6} ${W.toFixed(3)} ${(H+fs*2.6).toFixed(3)}" ${opt.px?`width="${Math.round(W*opt.px)}" height="${Math.round((H+fs*2.6)*opt.px)}"`:''} font-family="Noto Sans TC,PingFang TC,Microsoft JhengHei,sans-serif" class="plot-svg"><rect x="0" y="${-fs*2.6}" width="${W}" height="${H+fs*2.6}" fill="#fff"/>
-  <text x="${fs*0.6}" y="${-fs*0.9}" font-size="${fs*1.3}" font-weight="700" fill="${PLOT_C.字}">${esc(head)}</text>${g}</svg>`;
+  // 標題註明本層範圍與樑版取自哪張結構平面（例：4 層的樑版來自五層結構平面圖，露台地板在這張）
+  const pn=[...new Set(p.drawings.filter(d=>d.kind==='struct'&&(d.plans||[]).length).flatMap(d=>d.plans.filter(t=>planStory(t,d.plans).includes(f))))];
+  const head=`${p.code?p.code+' ':''}${p.name}　${b} 棟　${f} 層　計算導引施工圖`,sub=`範圍 ${flRange(p,f)}${pn.length?'　樑、版依 '+pn.join('、'):''}`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 ${-fs*3.6} ${W.toFixed(3)} ${(H+fs*3.6).toFixed(3)}" ${opt.px?`width="${Math.round(W*opt.px)}" height="${Math.round((H+fs*3.6)*opt.px)}"`:''} font-family="Noto Sans TC,PingFang TC,Microsoft JhengHei,sans-serif" class="plot-svg"><rect x="0" y="${-fs*3.6}" width="${W}" height="${H+fs*3.6}" fill="#fff"/>
+  <text x="${fs*0.6}" y="${-fs*2.0}" font-size="${fs*1.3}" font-weight="700" fill="${PLOT_C.字}">${esc(head)}</text><text x="${fs*0.6}" y="${-fs*0.8}" font-size="${fs*0.85}" fill="#555">${esc(sub)}</text>${g}</svg>`;
 }
 function plotTable(p,f,b){
   const D=plotData(p,f,b);let tf=0,tc=0;
@@ -2284,7 +2286,7 @@ function download(name,data,type){const a=document.createElement('a');a.href=URL
 })();
 
 /* 新版本提示：網站版才有，按「更新」才重新載入 */
-const BUILD='20261026164210';
+const BUILD='20261026170155';
 function checkUpdate(){
   if(!BUILD||BUILD.startsWith('__')||!/^https?:/.test(location.protocol))return;
   fetch('version.json?t='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{
