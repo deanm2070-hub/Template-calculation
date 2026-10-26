@@ -579,7 +579,7 @@ function recognize(ents,d,P){
   const k=d.unit, m=v=>v*k; // 圖面單位 → m
   const role=d.roles||{};
   const on=r=>l=>role[l]===r;
-  const segsOf=r=>{const s=[];ents.lines.forEach(l=>{if(on(r)(l.l))s.push([l.a,l.b])});ents.polys.forEach(p=>{if(!on(r)(p.l))return;const n=p.pts.length;for(let i=0;i<n-(p.closed?0:1);i++)s.push([p.pts[i],p.pts[(i+1)%n]])});return s};
+  const segsOf=r=>{const s=[];ents.lines.forEach(l=>{if(on(r)(l.l))s.push([l.a,l.b,l.l])});ents.polys.forEach(p=>{if(!on(r)(p.l))return;const n=p.pts.length;for(let i=0;i<n-(p.closed?0:1);i++)s.push([p.pts[i],p.pts[(i+1)%n],p.l])});return s};
   const tol=0.012/k;
   // 柱
   const cols=[];
@@ -593,16 +593,17 @@ function recognize(ents,d,P){
   cols.forEach(c=>{const t=nearText(c.c,RX_COL,1.5);c.code=t?t.s:'C'});
   // 平行線配對（樑、牆）
   function pairs(segs,minW,maxW){
-    const S2=segs.map(([a,b])=>{const dx=b[0]-a[0],dy=b[1]-a[1],L=Math.hypot(dx,dy);return {a,b,L,ux:dx/L,uy:dy/L}}).filter(s=>s.L*k>=0.2);
+    const S2=segs.map(([a,b,l])=>{const dx=b[0]-a[0],dy=b[1]-a[1],L=Math.hypot(dx,dy);return {a,b,l,L,ux:dx/L,uy:dy/L}}).filter(s=>s.L*k>=0.2);
     const cand=[];
     for(let i=0;i<S2.length;i++)for(let j=i+1;j<S2.length;j++){
       const s=S2[i],t=S2[j]; const cr=s.ux*t.uy-s.uy*t.ux; if(Math.abs(cr)>0.02)continue;
       const nx=-s.uy,ny=s.ux; const dd=Math.abs((t.a[0]-s.a[0])*nx+(t.a[1]-s.a[1])*ny)*k; if(dd<minW||dd>maxW)continue;
       const pr=p=>(p[0]-s.a[0])*s.ux+(p[1]-s.a[1])*s.uy; const t0=Math.min(pr(t.a),pr(t.b)),t1=Math.max(pr(t.a),pr(t.b));
       const o0=Math.max(0,t0),o1=Math.min(s.L,t1); const ov=(o1-o0)*k; if(ov<0.3)continue;
-      cand.push({i,j,dd,ov,s,o0,o1,nx,ny,sign:Math.sign((t.a[0]-s.a[0])*nx+(t.a[1]-s.a[1])*ny)});
+      cand.push({i,j,dd,ov,s,o0,o1,nx,ny,sc:dd+(s.l!==t.l&&dd<0.14?0.05:0),sign:Math.sign((t.a[0]-s.a[0])*nx+(t.a[1]-s.a[1])*ny)});
     }
-    cand.sort((p,q)=>p.dd-q.dd||q.ov-p.ov);
+    // 不同圖層的線貼著牆畫（電梯道、粉刷線）會配出兩道很薄的牆：這種跨圖層的薄配對排在同圖層配對之後
+    cand.sort((p,q)=>p.sc-q.sc||q.ov-p.ov);
     const used=new Set(),res=[];
     cand.forEach(c=>{if(used.has(c.i)||used.has(c.j))return;used.add(c.i);used.add(c.j);
       const s=c.s,half=c.dd/k/2*c.sign;
@@ -895,6 +896,22 @@ function wallFills(R,ents,sch,k){
       if(out.some(o=>Math.hypot(o.m[0]-m[0],o.m[1]-m[1])<0.1/k))return;
       let tag=null,td=1e18;tags.forEach(x=>{const al=(x.x-m[0])*ux+(x.y-m[1])*uy,pp=Math.abs((x.x-m[0])*uy-(x.y-m[1])*ux);if(Math.abs(al)>(g/2+0.3/k)||pp>1.0/k)return;const dd=Math.hypot(al,pp);if(dd<td){td=dd;tag=x}});
       if(!tag)return;const o=sch[tag.s];out.push({m,fl:w.fl,code:w.code,w:w.w,p0:sg>0?e:b,p1:sg>0?b:e,L:r2(g*k),open:{tag:tag.s,ow:r2(Math.min(o.w,g*k)),oh:o.h,name:o.name}})})});
+  // 整跨落地窗（柱到柱、柱到牆之間沒有牆段，只有門窗線）：窗上緣到樑底那段牆照整跨算、扣窗
+  const OL=/OPEN|WIN|窗|DOOR|門/i,os=[];ents.lines.forEach(l=>{if(OL.test(l.l))os.push([l.a,l.b])});ents.polys.forEach(q=>{if(!OL.test(q.l))return;const n=q.pts.length;for(let i=0;i<n-(q.closed?0:1);i++)os.push([q.pts[i],q.pts[(i+1)%n]])});
+  const lim=6/k,ins=q=>W.some(C=>segDist(q,C.w.p0,C.w.p1)<=C.w.w/2/k+0.01/k);
+  tags.forEach(x=>{const o=sch[x.s];if(!(o.w>=1.5))return;let sg=null,sd=1.0/k;os.forEach(z=>{const L=Math.hypot(z[1][0]-z[0][0],z[1][1]-z[0][1]);if(L*k<0.5)return;const dd=segDist([x.x,x.y],z[0],z[1]);if(dd<sd){sd=dd;sg=z}});if(!sg)return;
+    const L=Math.hypot(sg[1][0]-sg[0][0],sg[1][1]-sg[0][1]),ux=(sg[1][0]-sg[0][0])/L,uy=(sg[1][1]-sg[0][1])/L,nx=-uy,ny=ux;
+    // 牆厚：與這條窗線平行、重疊的門窗線最外兩條的間距
+    const ps=os.filter(z=>{const l=Math.hypot(z[1][0]-z[0][0],z[1][1]-z[0][1]);if(l*k<0.5)return false;const zx=(z[1][0]-z[0][0])/l,zy=(z[1][1]-z[0][1])/l;return Math.abs(zx*uy-zy*ux)<0.02&&Math.abs((z[0][0]-sg[0][0])*nx+(z[0][1]-sg[0][1])*ny)*k<0.3}).map(z=>(z[0][0]-sg[0][0])*nx+(z[0][1]-sg[0][1])*ny);
+    const lo=Math.min(0,...ps),hi=Math.max(0,...ps),th=r2((hi-lo)*k),off=(lo+hi)/2;
+    const al=(x.x-sg[0][0])*ux+(x.y-sg[0][1])*uy,c=[sg[0][0]+ux*Math.max(0,Math.min(L,al))+nx*off,sg[0][1]+uy*Math.max(0,Math.min(L,al))+ny*off];
+    if(ins(c)||out.some(f=>segDist(c,f.p0,f.p1)<0.2/k))return;
+    let near=null,nd=1e18;W.forEach(C=>{const dd=segDist(c,C.w.p0,C.w.p1);if(dd<nd){nd=dd;near=C}});if(!near||nd>4/k)return;const fl=near.w.fl,wt=th>=0.1&&th<=0.25?th:near.w.w;
+    const hitC=q=>(R.cols||[]).some(cc=>inPoly(q,cc.pts))||W.some(C=>String(C.w.fl)===String(fl)&&segDist(q,C.w.p0,C.w.p1)<=C.w.w/2/k+0.01/k);
+    const run=sgn=>{for(let t=st;t<=lim;t+=st){if(hitC([c[0]+ux*sgn*t,c[1]+uy*sgn*t]))return t}return null};
+    const a=run(-1),b=run(1);if(a==null||b==null)return;const g=a+b;if(g*k<1.0)return;
+    const p0=[c[0]-ux*a,c[1]-uy*a],p1=[c[0]+ux*b,c[1]+uy*b];
+    out.push({m:c,fl,code:'W',w:wt,p0,p1,L:r2(g*k),open:{tag:x.s,ow:r2(Math.abs(o.w-g*k)<0.15?g*k:Math.min(o.w,g*k)),oh:o.h,name:o.name,full:true}})});
   return out;
 }
 /* 判斷結構圖或建築圖：柱、樑以結構圖為準 */
@@ -1059,7 +1076,9 @@ function memCalc(m,P){
   else if(m.type==='牆'){const hb=num(m.hb,0),hp=num(m.hp,0),top=hb>0?hb:ts,hn=hp>0?hp:r2(H-top);
     // 門窗開口（依門窗表尺寸，高度不超過牆高）；牆長已含開口寬
     const os=(m.opens||[]).map(o=>({t:`${o.tag} ${fm(o.ow)}×${fm(Math.min(o.oh,hn))}`,a:o.ow*Math.min(o.oh,hn)})),oa=r2(os.reduce((x,o)=>x+o.a,0)),opT=op+oa;
-    form=2*L*hn*n-2*opT*n-ded;conc=(L*hn*n-opT*n)*b;ft=`2×${fm(L)}×${hp>0?`女兒牆${fm(hp)}`:hb>0?`(${fm(H)}−樑深${fm(hb)})`:fm(hn)}${n!==1?'×'+n:''}`+(os.length?` − 2×(${os.map(o=>o.t).join(' + ')})`:'')+(op?` − 2×${fm(op)}`:'')+(ded?` − ${fm(ded)}`:'');ct=`(${fm(L)}×${fm(hn)}${n!==1?'×'+n:''}${opT?' − '+fm(opT):''})×${fm(b)}`}
+    // 整跨落地窗上方的牆：加窗頂底模（牆厚×窗寬）
+    const sf=(m.opens||[]).filter(o=>o.full&&hn-o.oh>0.01).map(o=>({t:`${fm(b)}×${fm(o.ow)}`,a:b*o.ow})),sa=r2(sf.reduce((x,o)=>x+o.a,0));
+    form=2*L*hn*n-2*opT*n+sa*n-ded;conc=(L*hn*n-opT*n)*b;ft=`2×${fm(L)}×${hp>0?`女兒牆${fm(hp)}`:hb>0?`(${fm(H)}−樑深${fm(hb)})`:fm(hn)}${n!==1?'×'+n:''}`+(os.length?` − 2×(${os.map(o=>o.t).join(' + ')})`:'')+(sf.length?` + 窗頂${sf.map(o=>o.t).join(' + ')}`:'')+(op?` − 2×${fm(op)}`:'')+(ded?` − ${fm(ded)}`:'');ct=`(${fm(L)}×${fm(hn)}${n!==1?'×'+n:''}${opT?' − '+fm(opT):''})×${fm(b)}`}
   else{form=evalExpr(m.fx);conc=evalExpr(m.cx);ft=m.fx||'0';ct=m.cx||'0'}
   return {form:r2(form),conc:r2(conc),ft,ct,bad:!isFinite(form)||!isFinite(conc),H,ts};
 }
@@ -1246,7 +1265,7 @@ function reconcile(P){
     const cs=tb&&hPar?ceil(f).map(q=>q.map(v=>[v[0]-tb[0],v[1]-tb[1]])):[];
     const covered=p=>cs.some(q=>inPoly(p,q)||q.some((v,i)=>segDist(p,v,q[(i+1)%q.length])<0.35));
     const out=new Map();const shortS=shortOf(d,f);
-    (w.geo||[]).forEach((g,i)=>{const segK=++segN;
+    (w.geo||[]).forEach((g,i)=>{const segK=++segN,fo=(w.opens||[]).find(x=>x.i===i&&x.full);
       // 欄杆、格柵等重複短線（間距小於 0.6m 的平行短段）不是牆
       {const L0=Math.hypot(g[1][0]-g[0][0],g[1][1]-g[0][1]);if(L0<1.2){const c=[(g[0][0]+g[1][0])/2,(g[0][1]+g[1][1])/2];const nb=shortS.filter(o=>o.g!==g&&Math.hypot(o.c[0]-c[0],o.c[1]-c[1])<0.6&&para(g[0],g[1],o.g[0],o.g[1])).length;if(nb>=2){d.wout=r2(d.wout+L0);return}}}const L=w.lens?.[i]??Math.hypot(g[1][0]-g[0][0],g[1][1]-g[0][1]);const N=Math.max(1,Math.round(L/0.1));const cnt=new Map();
       for(let j=0;j<N;j++){const t=(j+0.5)/N,p=[g[0][0]+(g[1][0]-g[0][0])*t,g[0][1]+(g[1][1]-g[0][1])*t];
@@ -1257,6 +1276,8 @@ function reconcile(P){
           if(hit){cnt.set('dup',(cnt.get('dup')||0)+1);continue}seenW.set(d.id+'|'+f+'|'+hx+','+hy+'|'+ang,segK)}
         if(dup.some(o=>para(g[0],g[1],o.a,o.b)&&near(p,o.a,o.b,(o.w+num(w.b,0.2))/2+0.05))){cnt.set('dup',(cnt.get('dup')||0)+1);continue}
         let hb=0,ob=null;beams.forEach(o=>{if(o.h>hb&&para(g[0],g[1],o.a,o.b)&&near(p,o.a,o.b,(o.w+num(w.b,0.2))/2+0.05)){hb=o.h;ob=o}});
+        // 整跨落地窗上緣到樑底沒有牆：樑底照常組模，不扣
+        if(ob&&fo&&fo.oh>=floorH(P,f)-ob.h-0.01)ob=null;
         if(ob){const wt=fm(num(w.b,0.2)),e=bded.get(ob.m)||{};e[wt]=(e[wt]||0)+L/N;bded.set(ob.m,e)}
         cnt.set(!hb&&cs.length&&!covered(p)?'P':hb,(cnt.get(!hb&&cs.length&&!covered(p)?'P':hb)||0)+1)}
       // 同一段牆裡不到 0.3m 的零碎類別（端部取樣誤差）併入這段的主要類別
@@ -1264,7 +1285,7 @@ function reconcile(P){
       cnt.forEach((c,hb)=>{const l=Math.round(L*c/N*100)/100;if(hb==='dup'){d.wdup+=l;return}if(hb==='out'){d.wout+=l;return}if(l<0.05)return;
         if(!out.has(hb))out.set(hb,{L:0,lens:[],geo:[],opens:[]});const o=out.get(hb);o.L=Math.round((o.L+l)*100)/100;o.lens.push(l);o.geo.push(g)});
       // 這段是門窗所在的空缺：開口扣在這段所屬（樣本最多）的那一類
-      (w.opens||[]).filter(x=>x.i===i).forEach(x=>{let mk=null,mc=-1;cnt.forEach((c,hb)=>{if(hb!=='dup'&&hb!=='out'&&out.has(hb)&&c>mc){mc=c;mk=hb}});if(mk!=null){const o=out.get(mk),gi=o.geo.lastIndexOf(g);o.opens.push({tag:x.tag,ow:x.ow,oh:x.oh,name:x.name});if(gi>=0)(o.openAt=o.openAt||[])[gi]=((o.openAt||[])[gi]?o.openAt[gi]+'、':'')+x.tag}})});
+      (w.opens||[]).filter(x=>x.i===i).forEach(x=>{let mk=null,mc=-1;cnt.forEach((c,hb)=>{if(hb!=='dup'&&hb!=='out'&&out.has(hb)&&c>mc){mc=c;mk=hb}});if(mk!=null){const o=out.get(mk),gi=o.geo.lastIndexOf(g);o.opens.push({tag:x.tag,ow:x.ow,oh:x.oh,name:x.name,full:x.full});if(gi>=0)(o.openAt=o.openAt||[])[gi]=((o.openAt||[])[gi]?o.openAt[gi]+'、':'')+x.tag}})});
     out.forEach((o,hb)=>P.members.push(Object.assign({},w,{id:uid(),wauto:true,sh:tb||[0,0],L:o.L,lens:o.lens,geo:o.geo,opens:o.opens.length?o.opens:undefined,openAt:o.openAt?[...o.openAt].map(x=>x||''):undefined,hb:hb==='P'?0:(hb||0),hp:hb==='P'?hPar:null,pos:hb==='P'?'女兒牆':hb?'至樑底':''})))});
     d.wdup=Math.round(d.wdup*100)/100;d.wout=Math.round(d.wout*100)/100});
   {const used=new Set([...P.slabs.map(x=>x.floor),...P.members.map(x=>x.floor),...P.drawings.flatMap(d=>d.floors||[])]);
@@ -2068,7 +2089,7 @@ function download(name,data,type){const a=document.createElement('a');a.href=URL
 })();
 
 /* 新版本提示：網站版才有，按「更新」才重新載入 */
-const BUILD='20261026121302';
+const BUILD='20261026131819';
 function checkUpdate(){
   if(!BUILD||BUILD.startsWith('__')||!/^https?:/.test(location.protocol))return;
   fetch('version.json?t='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{
