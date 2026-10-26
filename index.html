@@ -1939,7 +1939,7 @@ function download(name,data,type){const a=document.createElement('a');a.href=URL
   function frame(t){
     if(!alive)return;g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,W,H);
     const n=dots.length;
-    if(!reduce){for(let i=0;i<Math.max(1,n*0.006);i++){if(Math.random()<0.18){const d=dots[(Math.random()*n)|0];if(d.f<=0){d.f=0.001;d.fd=0.0035+Math.random()*0.0045}}}}
+    if(!reduce){for(let i=0;i<Math.max(1,n*0.006);i++){if(Math.random()<0.085){const d=dots[(Math.random()*n)|0];if(d.f<=0){d.f=0.001;d.fd=0.0035+Math.random()*0.0045}}}}
     dots.forEach(d=>{
       let a=d.base+(reduce?0:Math.sin(t/1000*d.sp+d.ph)*0.06);let glow=0;
       if(d.f>0){d.f+=d.fd;const k=d.f<0.5?d.f*2:Math.max(0,2-d.f*2);glow=k;if(d.f>=1)d.f=0}
@@ -1955,7 +1955,7 @@ function download(name,data,type){const a=document.createElement('a');a.href=URL
 })();
 
 /* 新版本提示：網站版才有，按「更新」才重新載入 */
-const BUILD='20261026103104';
+const BUILD='20261026103117';
 function checkUpdate(){
   if(!BUILD||BUILD.startsWith('__')||!/^https?:/.test(location.protocol))return;
   fetch('version.json?t='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{
