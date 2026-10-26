@@ -482,6 +482,8 @@ function slabBays(ents,k,polys,cols,beams,walls){
   }
   const stairPts=[];ents.lines.forEach(l=>{if(/STAIR|樓梯/i.test(l.l))stairPts.push([(l.a[0]+l.b[0])/2,(l.a[1]+l.b[1])/2])});
   ents.polys.forEach(q=>{if(/STAIR|樓梯/i.test(q.l))q.pts.forEach(v=>stairPts.push(v))});
+  // 有版編號（S3、FS3…）的格子即使畫了樓梯線也是版（例如基礎層樓梯起步處的 1 樓版）
+  const slabTx=ents.texts.filter(t=>/^[A-Z]{0,3}S\d+[A-Z]?$/i.test(t.s.trim())).map(t=>[t.x,t.y]);
   const bays=[];let stairs=0,opens=0;
   outlines.forEach(O=>{
     const bb=bbox(O),x0=bb[0]-2*cs,y0=bb[1]-2*cs,W=Math.ceil((bb[2]-bb[0])/cs)+4,H=Math.ceil((bb[3]-bb[1])/cs)+4;
@@ -506,7 +508,7 @@ function slabBays(ents,k,polys,cols,beams,walls){
       comps.push({id:nl,n,minx,miny,maxx,maxy})}
     comps.forEach(cp=>{const A=cp.n*cs*cs*k*k;if(A<0.3)return;
       const inC=pt=>{const c=Math.floor((pt[0]-x0)/cs),r=Math.floor((pt[1]-y0)/cs);return c>=0&&r>=0&&c<W&&r<H&&lab[r*W+c]===cp.id};
-      if(stairPts.filter(inC).length>=6){stairs++;return}
+      if(stairPts.filter(inC).length>=6&&!slabTx.some(inC)){stairs++;return}
       // 外輪廓（格邊追蹤）
       const id=cp.id,at=(x,y)=>x>=0&&y>=0&&x<W&&y<H&&lab[y*W+x]===id;const nxt=new Map();
       for(let y=cp.miny;y<=cp.maxy;y++)for(let x=cp.minx;x<=cp.maxx;x++){if(!at(x,y))continue;
@@ -898,7 +900,7 @@ function floorH(P,f){const x=P.floors.find(z=>z.name===f);return x?+x.h:3}
 function slabCalc(s){
   const o=r2(evalExpr(s.orig)),se=r2(evalExpr(s.seal)),w=r2(evalExpr(s.wall)),c=r2(evalExpr(s.col));
   const bad=[s.orig,s.seal,s.wall,s.col].some(x=>isNaN(evalExpr(x)));
-  const ded=r2(-(w+c)),real=r2(o+se+ded),t=num(s.t,0.15);
+  const ded=r2(-(w+c)),real=s.noForm?0:r2(o+se+ded),t=num(s.t,0.15);
   return {o,se,w:-w,c:-c,ded,real,conc:s.noConc?0:r2(o*t),t,bad};
 }
 function raftT(P){return num(P.raftT,null)??P.drawings.map(d=>d.raftT).find(x=>x>0)??0.4}
@@ -1024,8 +1026,8 @@ function applyRecog(P,d,R){
   floors.forEach(f=>{
     const on=e=>flOf(e).includes(f);
     // 基礎層：基礎及一層結構平面上的 1 樓樓版（地樑之間）要組底模，歸在 F 層的版；混凝土已算在「1樓地板」，這裡不重複。
-    // FS 基礎版不組模；FCS 懸臂版在基礎版外，模板、混凝土都算
-    R.slabs.filter(on).filter(s=>!isF(f)||!/^F(?!C)/i.test(s.code)).sort((a,b)=>a.code.localeCompare(b.code)||(b.pts[0][1]-a.pts[0][1])).forEach(s=>{const o={id:uid(),bldg:d.bldg,floor:f,code:s.code,no:nextNo(P),t:s.t,orig:s.orig,seal:s.seal,wall:s.wall,col:s.col,src:d.id,geo:s.geo,...(isF(f)&&!/^FC/i.test(s.code)?{noConc:true}:{})};if(d.kind==='arch')holdS.push(o);else P.slabs.push(o)});
+    // FS 基礎版不組模；FCS 版高程較低、直接落地灌漿：不算模板，只算混凝土
+    R.slabs.filter(on).filter(s=>!isF(f)||!/^F(?!C)/i.test(s.code)).sort((a,b)=>a.code.localeCompare(b.code)||(b.pts[0][1]-a.pts[0][1])).forEach(s=>{const o={id:uid(),bldg:d.bldg,floor:f,code:s.code,no:nextNo(P),t:s.t,orig:s.orig,seal:s.seal,wall:s.wall,col:s.col,src:d.id,geo:s.geo,...(isF(f)?(/^FC/i.test(s.code)?{noForm:true}:{noConc:true}):{})};if(d.kind==='arch')holdS.push(o);else P.slabs.push(o)});
     const grp=new Map();
     if(!isF(f))R.cols.filter(on).forEach(c=>{const key=`${c.code}|${c.shape}|${c.b}|${c.h}|${c.pos||''}`;if(!grp.has(key))grp.set(key,{type:'柱',code:c.code,shape:c.shape,b:c.b,h:c.h,pos:c.pos||'',n:0,geo:[],jt:{}});const g=grp.get(key);g.n++;
       (c.jt||[]).forEach(([bw,bh])=>{const hs=r2(bh-tsD);if(hs<=0)return;const kk=fm(bw)+'×'+fm(hs);g.jt[kk]=(g.jt[kk]||0)+1});g.geo.push(c.c.map(v=>v*d.unit));(g.shp=g.shp||[]).push(c.pts.map(q=>[q[0]*d.unit,q[1]*d.unit]))});
@@ -1433,7 +1435,7 @@ function slabFormula(s){
 扣版牆接頭 = −(${s.wall||'0'}) = ${fs(c.w)}
 扣柱頭     = −(${s.col||'0'}) = ${fs(c.c)}
 扣接頭合計 = ${fs(c.w)} + ${fs(c.c)} = ${fs(c.ded)}
-真實模板   = ${f2(c.o)} + ${f2(c.se)} ${c.ded<0?'− '+f2(-c.ded):'+ 0.00'} = ${f2(c.real)} m²
+真實模板   = ${s.noForm?'0（直接落地灌漿，不組模）':`${f2(c.o)} + ${f2(c.se)} ${c.ded<0?'− '+f2(-c.ded):'+ 0.00'} = ${f2(c.real)} m²`}
 混凝土     = ${s.noConc?'已算在「1樓地板」，不重複':`${f2(c.o)} × ${fm(c.t)} = ${f2(c.conc)} m³`}`;
 }
 function svgMember(m,p){
@@ -1545,7 +1547,7 @@ function plotSVG(p,f,b,opt={}){
 }
 function plotTable(p,f,b){
   const D=plotData(p,f,b);let tf=0,tc=0;
-  const rows=[...D.sl.map(s=>{const c=slabCalc(s);tf+=c.real;tc+=c.conc;return [D.ids.get(s)||'',`${s.code}-${s.no}`,`原始 ${s.orig||0}　封模 ${s.seal||0}　扣牆 ${s.wall||0}　扣柱 ${s.col||0}`,c.real,s.noConc?'已計入 1樓地板':`${f2(c.o)}×${fm(c.t)}`,c.conc]}),
+  const rows=[...D.sl.map(s=>{const c=slabCalc(s);tf+=c.real;tc+=c.conc;return [D.ids.get(s)||'',`${s.code}-${s.no}`,s.noForm?'直接落地灌漿，不組模':`原始 ${s.orig||0}　封模 ${s.seal||0}　扣牆 ${s.wall||0}　扣柱 ${s.col||0}`,c.real,s.noConc?'已計入 1樓地板':`${f2(c.o)}×${fm(c.t)}`,c.conc]}),
     ...D.ms.map(m=>{const c=memCalc(m,p);tf+=c.form;tc+=c.conc;return [D.ids.get(m)||'',`${m.type==='其他'||m.kind==='stair'?'':m.type+' '}${m.code}${m.pos?'（'+m.pos+'）':''}${num(m.n,1)!==1?' ×'+num(m.n,1):''}`,c.ft,c.form,c.ct,c.conc]})];
   const io=x=>{const m=String(x).match(/^(\D+)(\d+)$/);return m?['版柱梁牆梯項'.indexOf(m[1])*1e4+ +m[2]]:[9e9]};rows.sort((a,b)=>io(a[0])-io(b[0]));
   return `<table class="plot-tbl"><thead><tr><th>編號</th><th>構件</th><th>模板算式</th><th>模板 m²</th><th>混凝土算式</th><th>混凝土 m³</th></tr></thead><tbody>${rows.map(r=>`<tr><td class="id">${esc(r[0])}</td><td>${esc(r[1])}</td><td class="f">${esc(r[2])}</td><td class="n">${f2(r[3])}</td><td class="f">${esc(r[4])}</td><td class="n">${f2(r[5])}</td></tr>`).join('')}
