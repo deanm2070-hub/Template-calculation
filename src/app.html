@@ -91,6 +91,7 @@ textarea{width:100%;resize:vertical}
 .pill{display:inline-block;border-radius:99px;padding:1px 8px;font-size:11px;border:1px solid currentColor;white-space:nowrap}
 .pill.dxf{color:var(--accent)} .pill.man{color:var(--muted)} .pill.ok{color:var(--ok)} .pill.warn{color:var(--warn)}
 .note{border-left:3px solid var(--warn);background:var(--surface2);padding:10px 12px;border-radius:0 6px 6px 0}
+.warnbox ul{margin:6px 0 0;padding-left:18px}.warnbox li{margin:2px 0}
 .scroll{overflow-x:auto;max-width:100%}
 table.data{border-collapse:collapse;width:100%;font-size:13px}
 table.data th,table.data td{border-bottom:1px solid var(--line);padding:5px 6px;text-align:left;vertical-align:middle;white-space:nowrap}
@@ -503,7 +504,7 @@ const bbox=p=>{let a=[Infinity,Infinity,-Infinity,-Infinity];p.forEach(q=>{a[0]=
    ========================================================= */
 const ROLE_RX={slab:/SLAB|SLB|版|樓板|FLOOR/i,col:/COL|柱/i,beam:/BEAM|BM|梁|樑|GIRDER/i,wall:/WALL|WAL|牆/i};
 function guessRoles(layers){const r={};Object.keys(layers).forEach(l=>{for(const k of ['slab','col','beam','wall'])if(ROLE_RX[k].test(l)){r[l]=k;break}});return r}
-const RX_SLAB=/^[A-Za-z+＋][A-Za-z0-9+\-']{0,5}$/;
+const RX_SLAB=/^(?=.*[A-Za-z])[A-Za-z+＋][A-Za-z0-9+\-']{0,5}$/;
 const RX_COL=/^[A-Z]{0,3}C[0-9A-Za-z\-]*$/i;
 const RX_BEAM=/^([A-Z]{0,2}[BGJ][0-9A-Za-z\-]*)\s*(?:[(（]?\s*(\d{2,3})\s*[xX×*]\s*(\d{2,3})(?:\s*\/\s*(\d{2,3}))?\s*[)）]?)?$/i;
 const RX_WALL=/^([A-Z]{0,2}W[0-9A-Za-z\-]*)/i;
@@ -845,7 +846,7 @@ function assignPlans(R,titles,k){
 
 /* 匯入後全自動：單位、圖層、樓層、層高、數量 */
 function autoProcess(P,d,ents){
-  d.unit=doorUnit(ents,UNIT[ents.insunits]||guessUnit(ents.ext));
+  {const u0=UNIT[ents.insunits]||guessUnit(ents.ext),un=v=>v===0.001?'mm':v===0.01?'cm':'m';d.unit=doorUnit(ents,u0);d.unitNote=d.unit!==u0?`圖檔標示單位為 ${un(u0)}，依門的大小判斷實際是用 ${un(d.unit)} 繪製，已自動換算`:''}
   const named=guessRoles(ents.layers);d.roles=Object.assign(named,inferRoles(ents,d.unit,named));
   // 層高只從剖面圖讀（平面圖上的 FL±… 是室內地坪高差，不是層高），且要在 2～8m 之間
   const lv=ents.texts.some(t=>/剖面|立面/.test(t.s))?readLevels(ents).filter(r=>r.h!=null&&r.h>=2&&r.h<=8):[];let nLv=0;
@@ -865,6 +866,7 @@ function autoProcess(P,d,ents){
     [R.slabs,R.cols,R.beams,R.walls,R.outl,R.pits].forEach(a=>a.forEach(e=>{if(e._plan)e.fl=st?planStory(e._plan,tStr):archStory(e._plan,tStr)}));
     d.planAt={};titles.forEach(t=>(st?planStory(t.s,tStr):archStory(t.s,tStr)).forEach(f=>{if(!d.planAt[f])d.planAt[f]=[t.cx*d.unit,t.y*d.unit]}))}
   d.openSch=readOpenSch(ents,d.unit);R.wfill=wallFills(R,ents,d.openSch,d.unit);
+  d.wgap=(R.wfill.gaps||[]).map(g=>({fl:[].concat(g.fl||[]),a:g.p0.map(v=>v*d.unit),b:g.p1.map(v=>v*d.unit),L:g.L}));
   applyRecog(P,d,R);
   return R;
 }
@@ -877,8 +879,7 @@ function readOpenSch(ents,k){
 }
 /* 牆的空缺（牆端到下一個柱或牆之間）：旁邊有門窗編號 → 牆照整道算、扣門窗開口；沒有標示 → 空缺整個扣到樑底（不補） */
 function wallFills(R,ents,sch,k){
-  if(!Object.keys(sch).length)return [];
-  const tags=ents.texts.filter(t=>sch[t.s]),out=[],st=0.05/k,mx=3.2/k;
+  const tags=ents.texts.filter(t=>sch[t.s]),out=[],st=0.05/k,mx=3.2/k;out.gaps=[];
   const W=R.walls.map(w=>{const dx=w.p1[0]-w.p0[0],dy=w.p1[1]-w.p0[1],L=Math.hypot(dx,dy)||1;return {w,ux:dx/L,uy:dy/L,L}});
   const hit=(q,A,fl)=>(R.cols||[]).some(c=>inPoly(q,c.pts))||W.some(C=>C!==A&&String(C.w.fl)===String(fl)&&segDist(q,C.w.p0,C.w.p1)<=C.w.w/2/k+0.01/k);
   W.forEach(A=>{const {w,ux,uy}=A;
@@ -886,7 +887,8 @@ function wallFills(R,ents,sch,k){
       if(end==null||end<0.3/k)return;const b=[e[0]+ux*sg*end,e[1]+uy*sg*end],m=[(e[0]+b[0])/2,(e[1]+b[1])/2],g=end;
       if(out.some(o=>Math.hypot(o.m[0]-m[0],o.m[1]-m[1])<0.1/k))return;
       let tag=null,td=1e18;tags.forEach(x=>{const al=(x.x-m[0])*ux+(x.y-m[1])*uy,pp=Math.abs((x.x-m[0])*uy-(x.y-m[1])*ux);if(Math.abs(al)>(g/2+0.3/k)||pp>1.0/k)return;const dd=Math.hypot(al,pp);if(dd<td){td=dd;tag=x}});
-      if(!tag)return;const o=sch[tag.s];out.push({m,fl:w.fl,code:w.code,w:w.w,p0:sg>0?e:b,p1:sg>0?b:e,L:r2(g*k),open:{tag:tag.s,ow:r2(Math.min(o.w,g*k)),oh:o.h,name:o.name}})})});
+      // 沒有門窗編號的空缺：照規則扣到樑底，但列入辨識檢查
+      if(!tag){if(g*k>=0.6&&!out.gaps.some(o=>Math.hypot(o.m[0]-m[0],o.m[1]-m[1])<0.1/k))out.gaps.push({m,fl:w.fl,p0:sg>0?e:b,p1:sg>0?b:e,L:r2(g*k)});return}const o=sch[tag.s];out.push({m,fl:w.fl,code:w.code,w:w.w,p0:sg>0?e:b,p1:sg>0?b:e,L:r2(g*k),open:{tag:tag.s,ow:r2(Math.min(o.w,g*k)),oh:o.h,name:o.name}})})});
   // 整跨落地窗（柱到柱、柱到牆之間沒有牆段，只有門窗線）：窗上緣到樑底那段牆照整跨算、扣窗
   const OL=/OPEN|WIN|窗|DOOR|門/i,os=[];ents.lines.forEach(l=>{if(OL.test(l.l))os.push([l.a,l.b])});ents.polys.forEach(q=>{if(!OL.test(q.l))return;const n=q.pts.length;for(let i=0;i<n-(q.closed?0:1);i++)os.push([q.pts[i],q.pts[(i+1)%n]])});
   const lim=6/k,ins=q=>W.some(C=>segDist(q,C.w.p0,C.w.p1)<=C.w.w/2/k+0.01/k);
@@ -1240,10 +1242,15 @@ function reconcile(P){
   const stFl=new Set(P.members.filter(m=>m.type==='柱'&&!m.held&&st.some(d=>d.id===m.src)).map(m=>m.floor));
   const shc={};const shortOf=(d,f)=>shc[d.id+'|'+f]||(shc[d.id+'|'+f]=(d.wraw||[]).filter(w=>w.floor===f).flatMap(w=>(w.geo||[]).filter(g=>Math.hypot(g[1][0]-g[0][0],g[1][1]-g[0][1])<1.2).map(g=>({g,c:[(g[0][0]+g[1][0])/2,(g[0][1]+g[1][1])/2]}))));
   const rcMin=num(P.rcWall,0.15)-0.005,archFl=new Set(P.drawings.filter(d=>d.kind==='arch').flatMap(d=>d.floors||[]));
-  P.drawings.forEach(d=>{d.wdup=0;d.wout=0;d.wthin=0;(d.wraw||[]).forEach(w=>{
+  const mid=g=>[(g[0][0]+g[1][0])/2,(g[0][1]+g[1][1])/2],inFp=(fp,c)=>!fp||(c[0]>=fp[0]&&c[1]>=fp[1]&&c[0]<=fp[2]&&c[1]<=fp[3]);
+  P.drawings.forEach(d=>{d.wdup=0;d.wout=0;d.wthin=0;d.chk=[];(d.wraw||[]).forEach(w=>{
     // 牆以建築圖為準（結構圖上的牆多為套繪底圖）；專案沒有建築圖時才用結構圖的牆
     if(d.kind!=='arch'&&archFl.size)return;
-    if(num(w.b,0.2)<rcMin){d.wthin=r2(d.wthin+num(w.L,0));return}
+    if(num(w.b,0.2)<rcMin){d.wthin=r2(d.wthin+num(w.L,0));
+      // 厚度接近 RC 牆（13cm 以上）卻被當磚牆的：結構範圍內、1m 以上的列入辨識檢查；12cm 以下是一般磚牆不列
+      const f=w.floor,tb=f&&num(w.b,0)>=0.125?shift(d,f,f)||(st.length?null:[0,0]):null;if(!tb)return;const fp=d.kind==='arch'?fpOf(d,f):null;
+      (w.geo||[]).forEach((g,i)=>{const L=w.lens?.[i]??Math.hypot(g[1][0]-g[0][0],g[1][1]-g[0][1]);if(L<1||!inFp(fp,mid(g)))return;
+        d.chk.push({floor:f,t:'thin',a:[g[0][0]+tb[0],g[0][1]+tb[1]],b:[g[1][0]+tb[0],g[1][1]+tb[1]],w:num(w.b,0.1),msg:`厚度 ${Math.round(num(w.b,0)*100)}cm 的牆比 RC 牆最小厚度薄，當作磚牆未計模板；若是 RC 牆請到專案設定調低 RC 牆最小厚度`})});return}
     const f=w.floor,u=f;
     // 同一樓層結構圖的樑（對位到本圖座標）
     let beams=[];const tb=u?shift(d,f,u):null;
@@ -1278,6 +1285,9 @@ function reconcile(P){
       // 這段是門窗所在的空缺：開口扣在這段所屬（樣本最多）的那一類
       (w.opens||[]).filter(x=>x.i===i).forEach(x=>{let mk=null,mc=-1;cnt.forEach((c,hb)=>{if(hb!=='dup'&&hb!=='out'&&out.has(hb)&&c>mc){mc=c;mk=hb}});if(mk!=null){const o=out.get(mk),gi=o.geo.lastIndexOf(g);o.opens.push({tag:x.tag,ow:x.ow,oh:x.oh,name:x.name,full:x.full});if(gi>=0)(o.openAt=o.openAt||[])[gi]=((o.openAt||[])[gi]?o.openAt[gi]+'、':'')+x.tag}})});
     out.forEach((o,hb)=>P.members.push(Object.assign({},w,{id:uid(),wauto:true,sh:tb||[0,0],L:o.L,lens:o.lens,geo:o.geo,opens:o.opens.length?o.opens:undefined,openAt:o.openAt?[...o.openAt].map(x=>x||''):undefined,hb:hb==='P'?0:(hb||0),hp:hb==='P'?hPar:null,pos:hb==='P'?'女兒牆':hb?'至樑底':''})))});
+    // 牆中斷、沒有門窗編號的空缺
+    if(d.kind==='arch'||!archFl.size)(d.wgap||[]).forEach(o=>o.fl.forEach(f=>{const tb=shift(d,f,f)||(st.length?null:[0,0]);if(!tb)return;const fp=d.kind==='arch'?fpOf(d,f):null;if(!inFp(fp,mid([o.a,o.b])))return;
+      d.chk.push({floor:f,t:'gap',a:[o.a[0]+tb[0],o.a[1]+tb[1]],b:[o.b[0]+tb[0],o.b[1]+tb[1]],w:0.15,msg:d.openSch&&Object.keys(d.openSch).length?'牆中斷處找不到門窗表上的編號，當作開口扣到樑底；若這裡是牆或門窗請確認':'建築圖沒有讀到門窗表（門窗尺寸），牆中斷處都當作開口扣到樑底；若有門窗表請確認格式（例如「D1　90x210 木門」）'})}));
     d.wdup=Math.round(d.wdup*100)/100;d.wout=Math.round(d.wout*100)/100});
   {const used=new Set([...P.slabs.map(x=>x.floor),...P.members.map(x=>x.floor),...P.drawings.flatMap(d=>d.floors||[])]);
     P.floors=P.floors.filter(f=>!f.auto||used.has(f.name))}
@@ -1379,6 +1389,7 @@ function viewDraw(p){
     <div class="panel stack">
       <div class="row" style="justify-content:space-between"><h3>${esc(d.name)}</h3><button class="btn sm danger" data-act="dwgdel" data-id="${d.id}">刪除圖檔</button></div>
       ${d.recog?`<div class="stat"><div><b>${d.recog.slabs}</b><span>版</span></div><div><b>${d.recog.cols}</b><span>柱</span></div><div><b>${d.recog.beams}</b><span>樑段</span></div><div><b>${d.recog.walls}</b><span>牆段</span></div></div>`:''}
+      ${d.unitNote?`<div class="note small">${esc(d.unitNote)}</div>`:''}
       ${d.recog&&d.recog.dropped?`<div class="muted small">已排除 ${d.recog.dropped} 個重疊或離結構太遠的柱框（例如柱表、詳圖），未計入柱數量。</div>`:''}
       <div class="small">樓層：<b>${esc(d.floors.join('、')||'—')}</b>　<span class="muted">（${esc(d.floorFrom||'')}）</span><br>圖別：<b>${d.kind==='arch'?'建築圖':'結構圖'}</b>${d.kind==='arch'?`　<span class="muted">已與結構圖疊合，柱、樑、版以結構圖為準${d.used?`；${d.used} 筆暫用本圖（該層尚無結構圖）`:'，本圖柱、樑、版不重複計入'}${d.wdup?`；牆與結構圖重疊 ${d.wdup} m 不重複計算`:''}${d.wout?`；結構範圍外的線 ${d.wout} m 不計`:''}${d.wthin?`；薄於 RC 牆厚的牆（磚牆）${d.wthin} m 不計模板`:''}；牆上方有樑時牆高算到樑底</span>`:''}${d.levels?`<br>已從圖中標高更新 ${d.levels} 個樓層的層高`:''}</div>
       ${d.recog&&!(d.recog.slabs+d.recog.cols+d.recog.beams+d.recog.walls)?'<div class="note small">這張圖沒有找到版、柱、樑或牆。若它是平面或結構圖，可展開下方「圖層對應」手動指定。</div>':''}
@@ -1641,6 +1652,8 @@ function viewSum(p){
   return `<div class="stack">
   <div class="row" style="justify-content:space-between"><div class="row"><label class="small muted" for="sumB">棟別</label><select id="sumB" data-filter="sumB"><option value="">全部棟別</option>${opts(p.bldgs,b)}</select></div>
   <div class="row"><button class="btn" data-act="copysum">複製兩張總表（貼到 Excel）</button>${standalone?'<button class="btn primary" data-act="xlsxsum">下載 Excel（總表＋柱樑版牆）</button><button class="btn" data-act="print">列印</button>':''}</div></div>
+  ${(()=>{const bs=b?[b]:p.bldgs,c=[];bs.forEach(bb=>plotFloors(p,bb).forEach(f=>{const n=checks(p,f,bb).length;if(n)c.push([bb,f,n])}));
+    return c.length?`<div class="note small warnbox"><b>⚠ 辨識檢查</b>：${c.map(([bb,f,n])=>`<button class="btn sm" data-act="ckgo" data-b="${esc(bb)}" data-f="${esc(f)}">${p.bldgs.length>1?esc(bb)+'棟 ':''}${esc(f)} 層 ${n} 處</button>`).join(' ')}<br>軟體沒把握的地方，點樓層到出圖看黃色標示的位置。</div>`:''})()}
   ${tbl('form','m²','模板分層數量統計總表')}${tbl('conc','m³','混凝土分層數量統計總表')}
   <p class="muted small">每層範圍＝本層樓板面到上一層樓板面：本層的柱、牆，加上上一層樓板的樑（側模、底模）與版底模；例如 1 樓＝1FL～2FL，基礎層＝地樑、基礎版，加上 1FL 樓板底模（地樑之間的版）。樓梯（斜底版＋踏步立面）依樓梯剖面圖算在其他，樓梯平台算在版。</p>
   <p class="muted small">版模板取「真實模板」；版混凝土 = 原始模板面積 × 版厚。樑混凝土取全樑深 b×h×淨跨，柱、牆高度算到版底（H − ts），三者不重複計算。</p></div>`;
@@ -1745,6 +1758,21 @@ function viewGuide(p){
    每層一張：版（圖號＋版編號、真實模板）、柱、樑（編號 寬×深 跨長）、牆，座標取自結構圖，
    牆由建築圖對位到結構圖；下方附該層每個構件的算式與數量，可列印成 PDF、下載 PNG 或 DXF（疊在原圖上比對）。 */
 const PLOT_C={號:'#dd6b20',版:'#2b6cb0',柱:'#c05621',樑:'#c53030',樑中:'#2b3fae',牆:'#4a5568',字:'#1a202c'};
+/* 辨識檢查：軟體沒把握的地方（沒找到編號、牆上方沒有樑、薄牆、沒有門窗編號的牆中斷），出圖時以黃色標示 */
+function checks(p,f,b){
+  const out=[],ms=p.members.filter(m=>m.floor===f&&m.bldg===b),hasSt=p.drawings.some(d=>d.kind!=='arch'&&d.bldg===b&&(d.floors||[]).includes(f));
+  if(!hasSt&&ms.some(m=>m.type==='牆'&&m.wauto))out.push({msg:'本層沒有結構平面圖：柱、樑取自建築圖（尺寸由圖形量取、樑深用預設值），牆上方的樑無法確認，牆高一律算到樓版底'});
+  ms.forEach(m=>{
+    if(hasSt&&m.type==='柱'&&/^C$/i.test(m.code))out.push({src:m,msg:'柱旁沒有找到柱編號，尺寸由圖形量取'});
+    if(hasSt&&m.type==='樑'&&/^B$/i.test(m.code))out.push({src:m,msg:'樑旁沒有找到樑編號，尺寸由線距推得、樑深用預設值'});
+    if(m.type==='牆'&&hasSt&&m.wauto&&!m.kind&&!(num(m.hb,0)>0)&&!(num(m.hp,0)>0))(m.lens||[]).forEach((l,i)=>{if(l>=1)out.push({src:m,i,msg:'牆上方找不到樑，牆高算到樓版底'})});
+  });
+  p.slabs.filter(s=>s.floor===f&&s.bldg===b&&s.geo&&/^S$/i.test(s.code)).forEach(s=>out.push({src:s,msg:'版內沒有找到版編號'}));
+  // 薄牆、牆中斷：旁邊已有計算的牆（同一道牆的粉刷線等）就不列
+  const W=ms.filter(m=>m.type==='牆'&&m.geo).flatMap(m=>{const sh=m.sh||[0,0];return m.geo.map(g=>({a:[g[0][0]+sh[0],g[0][1]+sh[1]],b:[g[1][0]+sh[0],g[1][1]+sh[1]],w:num(m.b,0.2)}))});
+  p.drawings.forEach(d=>(d.chk||[]).forEach(c=>{if(c.floor!==f||d.bldg!==b)return;const m=[(c.a[0]+c.b[0])/2,(c.a[1]+c.b[1])/2];if(W.some(o=>segDist(m,o.a,o.b)<o.w/2+(c.t==='thin'?0.3:0.05)))return;out.push(c)}));
+  return out;
+}
 function plotData(p,f,b){
   const sl=p.slabs.filter(s=>s.floor===f&&s.bldg===b),ms=p.members.filter(m=>m.floor===f&&m.bldg===b);
   const it=[];
@@ -1769,9 +1797,10 @@ function plotData(p,f,b){
   ms.forEach(m=>{if(m.kind==='drop'&&m.slab){const s=sl.find(x=>x.id===m.slab);if(s&&ids.get(s))m.pos=`${ids.get(s)}（${s.code}）外緣`}});
   it.forEach(o=>{o.id=o.i!=null&&o.src?inst.get(o.src.id+'|'+o.i)||ids.get(o.src):ids.get(o.src)});
   if(!ms.some(m=>m.type==='柱'))p.drawings.forEach(d=>(d.bldg===b&&d.refCols?.[f]||[]).forEach(c=>it.push({k:'柱',ref:true,pts:c.pts,c:centroid(c.pts),lab:c.code,sub:`${Math.round(num(c.b,0)*100)}×${Math.round(num(c.h,0)*100)}（位置）`})));
+  const ck=checks(p,f,b);ck.forEach(c=>{if(c.src){it.filter(o=>o.src===c.src&&(c.i==null||o.i===c.i)).forEach(o=>o.warn=true);c.id=c.i!=null?inst.get(c.src.id+'|'+c.i):ids.get(c.src)}});
   const pts=it.flatMap(o=>o.pts||[o.a,o.b]);
   const bb=pts.length?bbox(pts):null;
-  return {sl,ms,it,bb,ids};
+  return {sl,ms,it,bb,ids,ck};
 }
 function band(a,b,w){const dx=b[0]-a[0],dy=b[1]-a[1],L=Math.hypot(dx,dy)||1,nx=-dy/L*w/2,ny=dx/L*w/2;return [[a[0]+nx,a[1]+ny],[b[0]+nx,b[1]+ny],[b[0]-nx,b[1]-ny],[a[0]-nx,a[1]-ny]]}
 function plotSVG(p,f,b,opt={}){
@@ -1803,6 +1832,10 @@ function plotSVG(p,f,b,opt={}){
   D.it.filter(o=>o.k==='樑').forEach(lin);
   D.it.filter(o=>o.k==='版').forEach(o=>{const c=centroid(o.pts),cx=X(c[0]),cy=Y(c[1]),cs=[];[[0,0],[0,-1.5],[0,1.5],[-2.5,0],[2.5,0],[0,-3],[0,3]].forEach(([dx,dy])=>cs.push([[cx+dx*fs,cy+dy*fs-fs*0.15,o.lab,{c:PLOT_C.版,w:700,id:o.id}],[cx+dx*fs,cy+dy*fs+fs*1.05,o.sub,{c:PLOT_C.版,s:fs*0.85}]]));put(cs)});
   D.it.filter(o=>o.k==='牆').forEach(lin);
+  // 辨識檢查（只在畫面上）：有疑問的構件外框黃色、薄牆或牆中斷畫黃色虛線
+  if(opt.warn){const Y_='#e5a000';D.it.filter(o=>o.warn).forEach(o=>{g+=`<polygon points="${P2(o.pts||band(o.a,o.b,o.w+0.12))}" fill="rgba(255,214,0,.18)" stroke="${Y_}" stroke-width="${fs*0.22}"/>`});
+    D.ck.filter(c=>!c.src&&c.a).forEach(c=>{g+=`<polygon points="${P2(band(c.a,c.b,Math.max(c.w,0.1)+0.12))}" fill="rgba(255,214,0,.25)" stroke="${Y_}" stroke-width="${fs*0.18}" stroke-dasharray="${fs*0.4} ${fs*0.25}"/>`;
+      const m=[(c.a[0]+c.b[0])/2,(c.a[1]+c.b[1])/2];lab+=T(X(m[0]),Y(m[1])+fs*0.35,'⚠',{c:'#b7791f',s:fs*1.1,w:700})})}
   g+=lab;
   const head=`${p.code?p.code+' ':''}${p.name}　${b} 棟　${f} 層　計算導引施工圖`;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 ${-fs*2.6} ${W.toFixed(3)} ${(H+fs*2.6).toFixed(3)}" ${opt.px?`width="${Math.round(W*opt.px)}" height="${Math.round((H+fs*2.6)*opt.px)}"`:''} font-family="Noto Sans TC,PingFang TC,Microsoft JhengHei,sans-serif" class="plot-svg"><rect x="0" y="${-fs*2.6}" width="${W}" height="${H+fs*2.6}" fill="#fff"/>
@@ -1846,9 +1879,14 @@ function viewPlot(p){
    <button class="btn sm" data-act="plotz" data-k="-1" aria-label="縮小">−</button><button class="btn sm" data-act="plotz" data-k="1" aria-label="放大">＋</button><button class="btn sm" data-act="plotz" data-k="0">全圖</button></div>
   <div class="row">${standalone?`<button class="btn" data-act="plotprint">列印／存成 PDF（全部樓層）</button><button class="btn" data-act="plotpng">下載本層圖檔 PNG</button><button class="btn" data-act="plotdxf">下載 DXF（疊原圖比對）</button>`:`<span class="small muted">在網站版可列印成 PDF、下載 PNG 與 DXF。</span>`}</div></div>
   <div class="note small">圖可用兩指縮放、拖曳平移（電腦用滾輪）。橘色「版1、柱1、樑1、牆1」是計算編號，對照下方算式表的同一編號檢核；同編號多處表示同一列數量。紅色樑＝邊樑／周邊單面，藍色樑＝中間樑；牆含女兒牆。DXF 用原圖單位與座標，可直接疊在結構圖上比對。</div>
-  <div class="plot-wrap" id="plotBox" data-key="${esc(b+'|'+f)}">${plotSVG(p,f,b)}</div>
+  <div class="plot-wrap" id="plotBox" data-key="${esc(b+'|'+f)}">${plotSVG(p,f,b,{warn:true})}</div>
+  ${ckList(p,f,b)}
   <div class="scroll">${plotTable(p,f,b)}</div></div>`;
 }
+function ckList(p,f,b){const ck=checks(p,f,b);if(!ck.length)return '<div class="small muted">辨識檢查：本層沒有需要確認的地方。</div>';
+  const g=new Map();ck.forEach(c=>{const k=c.msg;if(!g.has(k))g.set(k,[]);g.get(k).push(c)});
+  const D=plotData(p,f,b);ck.forEach(c=>{if(c.src&&!c.id)c.id=D.ck.find(x=>x.src===c.src&&x.i===c.i)?.id});
+  return `<div class="note small warnbox"><b>⚠ 辨識檢查：本層有 ${ck.length} 處軟體沒把握，圖上以黃色標示，請確認</b><ul>${[...g.entries()].map(([k,a])=>`<li>${a.some(c=>c.id)?`<b>${esc(a.flatMap(c=>String(c.id||'').split('、')).filter(Boolean).sort((x,y)=>figN(x)-figN(y)).join('、'))}</b>：`:a.some(c=>c.a)?`${a.length} 處：`:''}${esc(k)}</li>`).join('')}</ul></div>`}
 function plotDXF(p,b){
   const st=p.drawings.find(d=>d.kind!=='arch')||p.drawings[0],k=st?st.unit:1;
   const u=s=>String(s).replace(/[^\x20-\x7e]/g,ch=>'\\U+'+ch.codePointAt(0).toString(16).toUpperCase().padStart(4,'0'));
@@ -2019,6 +2057,7 @@ document.addEventListener('click',async e=>{
   case 'copysum':{const {fl,F}=summary(p,S.sumB||'');const K=['版','樑','柱','牆','其他'];const LS=num(p.loss,1.1);const t=(key,title)=>{const ls=key==='form'&&LS!==1;const rows=[[title],['樓層','範圍',...K,'樓層合計',...(ls?['含損耗 ×'+LS]:[])]];const tot=K.map(()=>0);fl.forEach(f=>{const r=F[f][key];const v=K.map(k=>r[k]);v.forEach((x,i)=>tot[i]+=x);const sm=v.reduce((a,b)=>a+b,0);rows.push([f,flRange(p,f),...v.map(f2),f2(sm),...(ls?[f2(sm*LS)]:[])])});const all=tot.reduce((a,b)=>a+b,0);rows.push(['總計','',...tot.map(f2),f2(all),...(ls?[f2(all*LS)]:[])]);return rows};
     copyText([...t('form','模板分層數量統計總表 (m²)'),[],...t('conc','混凝土分層數量統計總表 (m³)')].map(r=>r.join('\t')).join('\n'));break}
   case 'print':{const sh=$('#sheet');const html=sh?sh.outerHTML:[...document.querySelectorAll('#main .panel')].filter(x=>x.querySelector('table')).map(x=>x.outerHTML).join('');printOut(html,`${p.name||'專案'}_${S.tab==='rep'?'模板報表':'分層統計'}`,'portrait');break}
+  case 'ckgo':S.tab='plot';S.plotB=el.dataset.b;S.plotF=el.dataset.f;render();scrollTo(0,0);break;
   case 'plotz':{const k=el.dataset.k;if(k==='0')plotPZ.fit();else plotPZ.zoom(k==='1'?1.5:1/1.5);break}
   case 'plotprint':plotPrint(p);break;
   case 'plotpng':plotPNG(p);break;
