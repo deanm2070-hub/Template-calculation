@@ -552,20 +552,24 @@ function gbOutline(beams,cols,O,k){
   return {Ao,Po:r2(e*cs*k),inside};
 }
 /* 由樑、柱、牆圍出樓版每一格（淨面積，扣除開口與樓梯） */
-function slabBays(ents,k,polys,cols,beams,walls){
+function slabBays(ents,k,polys,cols,beams,walls,slabOpen=[]){
   const cs=0.01/k;// 1cm 格
   let outlines=polys.filter(q=>cols.filter(c=>inPoly(c.c,q)).length>=2);
   const holes=polys.filter(q=>!outlines.includes(q));
   {// 沒有版外框的平面：以該柱群外框代替
     const used=new Set();const outl=outlines.slice();cols.forEach((c,i)=>{if(used.has(i))return;const g=[c];used.add(i);for(let j=0;j<g.length;j++)cols.forEach((o,oi)=>{if(!used.has(oi)&&Math.hypot(o.c[0]-g[j].c[0],o.c[1]-g[j].c[1])*k<12){used.add(oi);g.push(o)}});
-      if(g.length<3||g.some(o=>outl.some(q=>inPoly(o.c,q))))return;const bb=bbox(g.flatMap(o=>o.pts));outlines.push([[bb[0],bb[1]],[bb[2],bb[1]],[bb[2],bb[3]],[bb[0],bb[3]]])});
+      if(g.length<3||g.some(o=>outl.some(q=>inPoly(o.c,q))))return;const bb=bbox(g.flatMap(o=>o.pts));outlines.push(Object.assign([[bb[0],bb[1]],[bb[2],bb[1]],[bb[2],bb[3]],[bb[0],bb[3]]],{fb:true}))});
   }
   const stairPts=[];ents.lines.forEach(l=>{if(/STAIR|樓梯/i.test(l.l))stairPts.push([(l.a[0]+l.b[0])/2,(l.a[1]+l.b[1])/2])});
   ents.polys.forEach(q=>{if(/STAIR|樓梯/i.test(q.l))q.pts.forEach(v=>stairPts.push(v))});
   // 有版編號（S3、FS3…）的格子即使畫了樓梯線也是版（例如基礎層樓梯起步處的 1 樓版）
   const slabTx=ents.texts.filter(t=>/^[A-Z]{0,3}S\d+[A-Z]?$/i.test(t.s.trim())).map(t=>[t.x,t.y]);
   const bays=[];let stairs=0,opens=0;
-  outlines.forEach(O=>{
+  // 柱群外框以外的懸臂版：版圖層的開放折線（U 形版邊）封閉後 ≥0.3m²、大半在外框外 → 另成一個範圍；與主外框重疊的部分不重複
+  const sample=(q,fn)=>{const bb=bbox(q);let n=0,m=0;for(let i=0;i<12;i++)for(let j=0;j<12;j++){const pt=[bb[0]+(i+0.5)/12*(bb[2]-bb[0]),bb[1]+(j+0.5)/12*(bb[3]-bb[1])];if(!inPoly(pt,q))continue;n++;if(fn(pt))m++}return n?m/n:0};
+  const extra=slabOpen.filter(q=>sample(q,pt=>outlines.some(O=>inPoly(pt,O)))<0.5);
+  const main=outlines.slice();
+  [...main.map(O=>({O,main:true})),...extra.map(O=>({O,main:false}))].forEach(({O,main:isMain})=>{
     const bb=bbox(O),x0=bb[0]-2*cs,y0=bb[1]-2*cs,W=Math.ceil((bb[2]-bb[0])/cs)+4,H=Math.ceil((bb[3]-bb[1])/cs)+4;
     if(W*H>6e6)return;
     const G=new Uint8Array(W*H);
@@ -573,6 +577,8 @@ function slabBays(ents,k,polys,cols,beams,walls){
       for(let r=r0;r<=r1;r++){const y=y0+(r+0.5)*cs,xs=[];for(let i=0,j=poly.length-1;i<poly.length;j=i++){const [xi,yi]=poly[i],[xj,yj]=poly[j];if((yi>y)!==(yj>y))xs.push(xi+(y-yi)/(yj-yi)*(xj-xi))}
         xs.sort((a,b)=>a-b);for(let q=0;q+1<xs.length;q+=2){const c0=Math.max(0,Math.ceil((xs[q]-x0)/cs-0.5)),c1=Math.min(W-1,Math.floor((xs[q+1]-x0)/cs-0.5));for(let c=c0;c<=c1;c++){const id=r*W+c;if(only==null||G[id]===only)G[id]=v}}}};
     fill(O,1);
+    // 懸臂版範圍：主外框已算的版格不重複；柱面與樑面之間被捨掉的細條不擋，懸臂版可以一路接到樑面
+    if(!isMain)bays.forEach(b=>{if(b.main)fill(b.pts,2,1)});
     const rectOf=(p0,p1,w,ext)=>{const dx=p1[0]-p0[0],dy=p1[1]-p0[1],L=Math.hypot(dx,dy)||1,ux=dx/L,uy=dy/L,nx=-uy*w/2,ny=ux*w/2,e=ext;
       const a=[p0[0]-ux*e,p0[1]-uy*e],b=[p1[0]+ux*e,p1[1]+uy*e];return [[a[0]+nx,a[1]+ny],[b[0]+nx,b[1]+ny],[b[0]-nx,b[1]-ny],[a[0]-nx,a[1]-ny]]};
     const near=pt=>pt[0]>=bb[0]-1/k&&pt[0]<=bb[2]+1/k&&pt[1]>=bb[1]-1/k&&pt[1]<=bb[3]+1/k;
@@ -598,7 +604,10 @@ function slabBays(ents,k,polys,cols,beams,walls){
         if(!best||Math.abs(polyArea(loop))>Math.abs(polyArea(best)))best=loop});
       if(!best||best.length<4)return;
       const simp=best.filter((p,i)=>{const a=best[(i-1+best.length)%best.length],c=best[(i+1)%best.length];return (p[0]-a[0])*(c[1]-p[1])-(p[1]-a[1])*(c[0]-p[0])!==0});
-      bays.push(simp.map(([x,y])=>[x0+x*cs,y0+y*cs]));
+      const poly=simp.map(([x,y])=>[x0+x*cs,y0+y*cs]),pb=bbox(poly),tch=Math.min(pb[2]-pb[0],pb[3]-pb[1])*k<0.45&&[pb[0]-bb[0],bb[2]-pb[2],pb[1]-bb[1],bb[3]-pb[3]].some(v=>Math.abs(v)*k<0.08);
+      // 以柱群外框代替版外框時，貼著外框邊、寬不到 45cm 的細條（柱外面與樑外面之間）不是版；畫出來的版外框則照畫
+      if(isMain&&O.fb&&tch)return;
+      bays.push({pts:poly,main:isMain});
     });
   });
   // 頂點對齊到附近的樑、柱、外框線（1cm 格造成的誤差）
@@ -606,7 +615,7 @@ function slabBays(ents,k,polys,cols,beams,walls){
   ents.lines.forEach(l=>addSeg(l.a,l.b));ents.polys.forEach(q=>q.pts.forEach((v,i)=>{if(i)addSeg(q.pts[i-1],v)}));
   xsL.sort((a,b)=>a-b);ysL.sort((a,b)=>a-b);
   const snap=(arr,v)=>{let lo=0,hi=arr.length-1;while(lo<hi){const m=(lo+hi)>>1;if(arr[m]<v)lo=m+1;else hi=m}let b=v,bd=0.02/k;[lo-1,lo,lo+1].forEach(i=>{if(i>=0&&i<arr.length&&Math.abs(arr[i]-v)<bd){bd=Math.abs(arr[i]-v);b=arr[i]}});return b};
-  const out=bays.map(q=>dedupe(q.map(([x,y])=>[snap(xsL,x),snap(ysL,y)]))).filter(q=>q.length>=3);
+  const out=bays.map(b=>b.pts).map(q=>dedupe(q.map(([x,y])=>[snap(xsL,x),snap(ysL,y)]))).filter(q=>q.length>=3);
   return {bays:out,stairs,opens,outlines};
 }
 function recognize(ents,d,P){
@@ -676,7 +685,9 @@ function recognize(ents,d,P){
   let slabPolys=ents.polys.filter(p=>on('slab')(p.l)&&p.closed).map(p=>dedupe(p.pts)).filter(p=>p.length>=3&&Math.abs(polyArea(p))*k*k>=0.3);
   // 版圖層若只是整層外框（框內含柱），改由樑、柱圍出的每一格計算樓版淨面積
   let bayInfo=null;
-  if(beams.length>=3&&(!slabPolys.length||slabPolys.some(q=>cols.filter(c=>inPoly(c.c,q)).length>=2))){bayInfo=slabBays(ents,k,slabPolys,cols,beams,walls);slabPolys=bayInfo.bays}
+  if(beams.length>=3&&(!slabPolys.length||slabPolys.some(q=>cols.filter(c=>inPoly(c.c,q)).length>=2))){
+    const slabOpen=ents.polys.filter(p=>on('slab')(p.l)&&!p.closed&&p.pts.length>=3).map(p=>dedupe(p.pts)).filter(q=>q.length>=3&&Math.abs(polyArea(q))*k*k>=0.3&&Math.abs(polyArea(q))*k*k<=60);
+    bayInfo=slabBays(ents,k,slabPolys,cols,beams,walls,slabOpen);slabPolys=bayInfo.bays}
   const beamSegs=segsOf('beam'),wallSegs=segsOf('wall'),colSegs=segsOf('col');
   const slabs=slabPolys.map((pts,si)=>{
     const A=Math.abs(polyArea(pts))*k*k;
