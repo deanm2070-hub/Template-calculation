@@ -1069,6 +1069,8 @@ function applyRecog(P,d,R){
     P.members.push({id:uid(),bldg:d.bldg,floor:f,src:d.id,type:'牆',kind:'stair',code:'樓梯',pos:st.k+' 階',b:d.stairs.W||0.8,L:r2(st.soffit.reduce((a,x)=>a+x,0)),Lf:st.soffit.map(fm).join('+'),h:d.stairs.rH,k:st.k,td:d.stairs.tD,n:null});
     // 樓梯平台：每段梯接一個平台（中間平台＋到樓層的平台），寬 = 2×梯寬、深 = 平台淨寬；算在版
     const W=d.stairs.W||0.8;if(st.soffit.length)P.members.push({id:uid(),bldg:d.bldg,floor:f,src:d.id,type:'其他',kind:'landing',code:'樓梯平台',b:r2(2*W),L:d.stairs.Wp||W,k:st.soffit.length,n:null,fx:'',cx:''})});
+  // 基礎層不算柱，但出圖要畫柱位當參考
+  d.refCols={};if(d.kind!=='arch')floors.filter(isF).forEach(f=>{d.refCols[f]=R.cols.filter(c=>flOf(c).includes(f)).map(c=>({code:c.code,b:c.b,h:c.h,pts:c.pts.map(q=>[q[0]*d.unit,q[1]*d.unit])}))});
   d.hold=hold;d.holdS=holdS;d.wraw=wraw;
   d.floors=floors;
   reconcile(P);
@@ -1554,6 +1556,7 @@ function plotData(p,f,b){
   num_(sl.map(o=>({o,p:o.geo?centroid(o.geo.pts):null})),'版');
   [['柱',m=>m.type==='柱'],['梁',m=>m.type==='梁'],['牆',m=>m.type==='牆'&&m.kind!=='stair'],['梯',m=>m.kind==='stair'],['項',m=>m.type==='其他']].forEach(([pre,fn])=>num_(ms.filter(fn).map(o=>({o,p:pos(o.geo&&o.geo.length?(o.type==='柱'?o.geo[0]:o.geo[0]):null)})),pre));
   it.forEach(o=>{o.id=ids.get(o.src)});
+  if(!ms.some(m=>m.type==='柱'))p.drawings.forEach(d=>(d.bldg===b&&d.refCols?.[f]||[]).forEach(c=>it.push({k:'柱',ref:true,pts:c.pts,c:centroid(c.pts),lab:c.code,sub:`${Math.round(num(c.b,0)*100)}×${Math.round(num(c.h,0)*100)}（位置）`})));
   const pts=it.flatMap(o=>o.pts||[o.a,o.b]);
   const bb=pts.length?bbox(pts):null;
   return {sl,ms,it,bb,ids};
@@ -1838,7 +1841,7 @@ function download(name,data,type){const a=document.createElement('a');a.href=URL
 })();
 
 /* 新版本提示：網站版才有，按「更新」才重新載入 */
-const BUILD='20261026071745';
+const BUILD='20261026072316';
 function checkUpdate(){
   if(!BUILD||BUILD.startsWith('__')||!/^https?:/.test(location.protocol))return;
   fetch('version.json?t='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{
