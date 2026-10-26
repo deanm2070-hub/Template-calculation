@@ -37,9 +37,10 @@
   --bg:#0c0f22; --surface:#151935; --surface2:#1b2042; --ink:#e6e8f6; --muted:#9ca2c6; --line:#2b3158;
   --accent:#93a2ff; --accent-ink:#0c0f22; --hl:rgba(147,162,255,.14);
   --red:#ff7a7f; --ok:#5fd39a; --warn:#ffb54d; --wall:#ff7a7f; --seal:#5cc8ff; --col:#ffb54d; color-scheme:dark}
-html,body{height:100%}
+/* 由整頁（viewport）捲動，不讓 body 變成固定高度的捲動框：iPhone 主畫面 App 的 body 高度比螢幕矮，下方內容會被截掉 */
+html,body{min-height:100%}
 html{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adjust:100%}
-html,body{overflow-x:hidden;max-width:100%}
+body{overflow-x:hidden;max-width:100%}html{max-width:100%}
 *,*::before,*::after{box-sizing:border-box}
 body{margin:0;padding-top:var(--toph,0px);background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.55}
 button,input,select,textarea{font:inherit;color:inherit}
@@ -2175,7 +2176,7 @@ function download(name,data,type){const a=document.createElement('a');a.href=URL
 })();
 
 /* 新版本提示：網站版才有，按「更新」才重新載入 */
-const BUILD='20261026150648';
+const BUILD='20261026151437';
 function checkUpdate(){
   if(!BUILD||BUILD.startsWith('__')||!/^https?:/.test(location.protocol))return;
   fetch('version.json?t='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{
