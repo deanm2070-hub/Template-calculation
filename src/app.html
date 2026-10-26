@@ -1,0 +1,1126 @@
+<title>築本模板工程計算</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="築本模板">
+<meta name="theme-color" content="#101a5c">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@700;900&family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: 首頁為全螢幕品牌畫面；工作區為上方工具列 + 分頁 + 寬表格（各自橫向捲動） */
+:root{
+  --navy:#101a5c; --royal:#2b3fae;
+  --bg:#eef0f6; --surface:#ffffff; --surface2:#f6f7fb; --ink:#171a2e; --muted:#5a5f7a; --line:#d6d9e6;
+  --accent:#2b3fae; --accent-ink:#ffffff; --hl:rgba(43,63,174,.10);
+  --red:#c0262d; --ok:#1c7a4c; --warn:#a86300; --wall:#c0262d; --seal:#0b7fb5; --col:#d07a00;
+  --paper:#ffffff; --paper-ink:#111111; --paper-line:#3a3a3a; --paper-sub:#f1f1f1;
+  --cad-bg:#0d1230; --cad-ink:#cfd6ff;
+  --f-display:"Noto Serif TC","Songti TC","PMingLiU",serif;
+  --f-body:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+  --f-num:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0c0f22; --surface:#151935; --surface2:#1b2042; --ink:#e6e8f6; --muted:#9ca2c6; --line:#2b3158;
+  --accent:#93a2ff; --accent-ink:#0c0f22; --hl:rgba(147,162,255,.14);
+  --red:#ff7a7f; --ok:#5fd39a; --warn:#ffb54d; --wall:#ff7a7f; --seal:#5cc8ff; --col:#ffb54d; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c0f22; --surface:#151935; --surface2:#1b2042; --ink:#e6e8f6; --muted:#9ca2c6; --line:#2b3158;
+  --accent:#93a2ff; --accent-ink:#0c0f22; --hl:rgba(147,162,255,.14);
+  --red:#ff7a7f; --ok:#5fd39a; --warn:#ffb54d; --wall:#ff7a7f; --seal:#5cc8ff; --col:#ffb54d; color-scheme:dark}
+html,body{height:100%}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.55}
+button,input,select,textarea{font:inherit;color:inherit}
+.num{font-family:var(--f-num);font-variant-numeric:tabular-nums}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* ---------- 首頁 ---------- */
+#splash{position:fixed;inset:0;z-index:50;cursor:pointer;overflow:hidden;
+  background:radial-gradient(120% 80% at 85% 0%,#3346b8 0%,transparent 55%),radial-gradient(90% 70% at 10% 100%,#3448c4 0%,transparent 60%),linear-gradient(160deg,#121c66 0%,#1b2a8a 45%,#22339f 100%);
+  transition:opacity .7s ease, visibility .7s}
+#splash.out{opacity:0;visibility:hidden}
+#dots{position:absolute;inset:0;width:100%;height:100%}
+.sp-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:24px max(16px,env(safe-area-inset-right,0px)) 24px max(16px,env(safe-area-inset-left,0px));pointer-events:none;text-align:center}
+.sp-logo{width:min(240px,46vw);filter:drop-shadow(0 18px 30px rgba(5,10,50,.55));animation:float 6s ease-in-out infinite}
+@keyframes float{50%{transform:translateY(-6px)}}
+.sp-title{font-family:var(--f-display);font-weight:900;color:#fff;font-size:clamp(30px,6.4vw,58px);letter-spacing:.12em;margin:8px 0 0;text-shadow:0 4px 18px rgba(0,0,20,.45);text-wrap:balance}
+.sp-sub{color:rgba(225,231,255,.82);font-family:var(--f-display);letter-spacing:.32em;font-size:clamp(10px,1.6vw,13px);margin:0}
+@media (max-width:520px){.sp-sub{letter-spacing:.16em;font-size:9.5px}}
+.sp-hint{position:absolute;left:0;right:0;bottom:max(36px,env(safe-area-inset-bottom,0px));text-align:center;color:rgba(235,240,255,.9);letter-spacing:.25em;font-size:13px;animation:pulse 2.4s ease-in-out infinite;pointer-events:none}
+@keyframes pulse{50%{opacity:.35}}
+@media (prefers-reduced-motion: reduce){.sp-logo,.sp-hint{animation:none}}
+
+/* ---------- 工作區 ---------- */
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--navy)}
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:9;background:var(--navy);color:#fff;display:flex;align-items:center;gap:14px;padding-block:6px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));flex-wrap:wrap}
+.top img{width:30px;height:auto}
+.brand{font-family:var(--f-display);font-weight:900;letter-spacing:.08em;font-size:17px;cursor:pointer;background:none;border:0;color:#fff;padding:0}
+.top .crumb{color:rgba(220,226,255,.85);font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.top .sp{flex:1}
+.top .crumb{flex:1}
+.wrap{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:10px 32px;width:100%;box-sizing:border-box}
+h1,h2,h3{text-wrap:balance;margin:0}
+h2{font-size:20px} h3{font-size:15px}
+.muted{color:var(--muted)}
+.small{font-size:12px}
+.btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:6px 12px;cursor:pointer;white-space:nowrap}
+.btn:hover{border-color:var(--accent)}
+.btn.pri{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:500}
+.btn.ghost{background:transparent}
+.btn.sm{padding:3px 8px;font-size:12px}
+.btn.danger{color:var(--red)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.top .btn{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.25);color:#fff}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.stack{display:flex;flex-direction:column;gap:14px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px}
+.field{display:flex;flex-direction:column;gap:4px;min-width:0}
+.field label{font-size:12px;color:var(--muted);letter-spacing:.04em}
+input[type=text],input[type=number],select,textarea{background:var(--surface);border:1px solid var(--line);border-radius:5px;padding:6px 8px;min-width:0}
+textarea{width:100%;resize:vertical}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);overflow-x:auto;margin-bottom:12px}
+.tab{border:0;background:none;padding:10px 14px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;white-space:nowrap}
+.tab[aria-selected=true]{color:var(--ink);border-bottom-color:var(--accent);font-weight:700}
+.pill{display:inline-block;border-radius:99px;padding:1px 8px;font-size:11px;border:1px solid currentColor;white-space:nowrap}
+.pill.dxf{color:var(--accent)} .pill.man{color:var(--muted)} .pill.ok{color:var(--ok)} .pill.warn{color:var(--warn)}
+.note{border-left:3px solid var(--warn);background:var(--surface2);padding:10px 12px;border-radius:0 6px 6px 0}
+.scroll{overflow-x:auto;max-width:100%}
+table.data{border-collapse:collapse;width:100%;font-size:13px}
+table.data th,table.data td{border-bottom:1px solid var(--line);padding:5px 6px;text-align:left;vertical-align:middle;white-space:nowrap}
+table.data th{font-size:12px;color:var(--muted);font-weight:500;background:var(--surface2);position:sticky;top:0;white-space:nowrap}
+table.data td.r,table.data th.r{text-align:right}
+table.data input,table.data select{padding:3px 5px;font-size:13px}
+table.data input.w4{width:4.5em} table.data input.w6{width:6.5em} table.data input.w10{width:11em} table.data input.w14{width:15em}
+table.data tr.bad td{background:color-mix(in srgb,var(--red) 10%,transparent)}
+table.data tr.foot td{font-weight:700;border-top:2px solid var(--ink)}
+.empty{padding:30px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:8px}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.pcard{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px;cursor:pointer;display:flex;flex-direction:column;gap:6px;text-align:left}
+.pcard:hover{border-color:var(--accent)}
+.pcard .code{font-family:var(--f-num);color:var(--muted);font-size:12px}
+.pcard .nm{font-weight:700;font-size:16px}
+.layout-draw{display:grid;grid-template-columns:280px minmax(0,1fr);gap:14px}
+@media (max-width:900px){.layout-draw{grid-template-columns:minmax(0,1fr)}}
+.dlist{display:flex;flex-direction:column;gap:6px}
+.ditem{border:1px solid var(--line);border-radius:6px;padding:8px 10px;background:var(--surface);cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:2px}
+.ditem[aria-current=true]{border-color:var(--accent);background:var(--hl)}
+.cadbox{position:relative;background:var(--cad-bg);border-radius:8px;overflow:hidden;height:calc(100dvh - 150px);min-height:360px;touch-action:none}
+.cadbox canvas{position:absolute;inset:0;width:100%;height:100%;cursor:grab}
+.cadtools{position:absolute;top:8px;left:8px;display:flex;gap:6px;flex-wrap:wrap}
+.cadtools .btn{background:rgba(13,18,48,.85);color:#dfe4ff;border-color:#39407a}
+.cadinfo{position:absolute;right:8px;bottom:8px;max-width:min(360px,80%);background:rgba(13,18,48,.92);color:#e3e7ff;border:1px solid #39407a;border-radius:6px;padding:8px 10px;font-size:12px}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:4px;vertical-align:-2px}
+.layers{max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:6px}
+.layers table{width:100%;border-collapse:collapse;font-size:12px}
+.layers td{padding:3px 6px;border-bottom:1px solid var(--line)}
+.layers select{font-size:12px;padding:2px}
+.stat{display:flex;gap:18px;flex-wrap:wrap}
+.stat div{display:flex;flex-direction:column}
+.stat b{font-family:var(--f-num);font-size:20px}
+.stat span{font-size:12px;color:var(--muted)}
+
+/* ---------- 報表（紙本樣式，兩種主題都維持白紙） ---------- */
+.sheet{background:var(--paper);color:var(--paper-ink);padding:28px 26px;border-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,.15);width:max-content;min-width:100%}
+.sheet h1{font-size:22px;text-align:center;letter-spacing:.3em;margin-bottom:10px;font-family:var(--f-display)}
+.sheet .meta{font-size:13px;line-height:1.7}
+table.rep{border-collapse:collapse;font-size:13px;margin-top:8px}
+table.rep th,table.rep td{border:1px solid var(--paper-line);padding:2px 5px;white-space:nowrap}
+table.rep th{font-weight:500;background:var(--paper-sub)}
+table.rep td.n{text-align:right;font-family:var(--f-num);font-variant-numeric:tabular-nums}
+table.rep td.f{font-family:var(--f-num);font-size:12px;white-space:normal;max-width:15em}
+table.rep td.real{color:#c0262d;font-weight:600}
+table.rep tr.sub td{font-weight:700}
+table.rep tr.tot td{font-weight:700;border-top:2px solid var(--paper-ink)}
+table.rep td.c{text-align:center}
+table.rep tr.click{cursor:pointer}
+table.rep tr.click:hover td{background:#eef1ff}
+
+/* ---------- 導引圖 ---------- */
+.guide-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:14px}
+.gcard{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.gcard svg{width:100%;height:auto;max-width:100%}
+.formula{font-family:var(--f-num);font-size:12.5px;background:var(--surface2);padding:8px 10px;border-radius:6px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere}
+svg .g-ink{stroke:var(--ink);fill:none}
+svg .g-txt{fill:var(--ink);font-family:var(--f-num);font-size:12px}
+svg .g-lbl{fill:var(--muted);font-family:var(--f-body);font-size:12px}
+svg .g-fill{fill:var(--hl);stroke:var(--accent);stroke-width:1.5}
+svg .g-wall{stroke:var(--wall);stroke-width:4;fill:none}
+svg .g-seal{stroke:var(--seal);stroke-width:4;fill:none;stroke-dasharray:8 4}
+svg .g-col{fill:var(--col);fill-opacity:.55;stroke:var(--col)}
+svg .g-form{stroke:var(--accent);stroke-width:4;fill:none}
+svg .g-conc{fill:var(--muted);fill-opacity:.18;stroke:var(--muted)}
+svg .g-dim{stroke:var(--muted);stroke-width:1}
+
+dialog{border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);padding:0;width:min(860px,calc(100vw - 32px));max-height:calc(100vh - 40px)}
+dialog::backdrop{background:rgba(5,8,30,.55)}
+.dlg-h{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);gap:10px}
+.dlg-b{padding:16px;overflow:auto;max-height:calc(100vh - 140px)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(24px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:8px 16px;border-radius:6px;z-index:80;font-size:13px;opacity:0;transition:opacity .25s;pointer-events:none}
+.toast.on{opacity:1}
+</style>
+
+<div id="splash" role="button" tabindex="0" aria-label="進入築本模板工程計算">
+  <canvas id="dots"></canvas>
+  <div class="sp-center">
+    <img class="sp-logo" src="data:image/webp;base64,__LOGO__" alt="築本標誌">
+    <h1 class="sp-title">築本模板工程計算</h1>
+    <p class="sp-sub">ZHUBEN FORMWORK &amp; CONCRETE ESTIMATION</p>
+  </div>
+  <div class="sp-hint">點擊任意處進入</div>
+</div>
+
+<header class="top" id="top" hidden>
+  <img src="data:image/webp;base64,__LOGO__" alt="">
+  <button class="brand" data-act="home">築本模板工程計算</button>
+  <span class="crumb" id="crumb"></span>
+</header>
+<main class="wrap" id="main" hidden></main>
+<dialog id="dlg"><div class="dlg-h"><h3 id="dlgT"></h3><button class="btn sm" data-act="dlgclose">關閉</button></div><div class="dlg-b" id="dlgB"></div></dialog>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+/* =========================================================
+   基本工具
+   ========================================================= */
+const $=(s,r=document)=>r.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid=()=>Math.random().toString(36).slice(2,10);
+const r2=v=>Math.round((v+(v>=0?1e-9:-1e-9))*100)/100;
+const f2=v=>(isFinite(v)?r2(v):0).toFixed(2);
+const fs=v=>{v=r2(v);return v<0?'- '+(-v).toFixed(2):v.toFixed(2)};
+const fm=v=>{ // 尺寸顯示：去除多餘 0
+  if(!isFinite(v)) return '?'; return String(Math.round(v*1000)/1000);
+};
+const num=(v,d)=>{const n=parseFloat(v);return isFinite(n)?n:d};
+const standalone=(()=>{try{return window.top===window.self}catch(e){return false}})();
+function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('on');clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove('on'),2200)}
+function evalExpr(s){
+  if(s==null) return 0; s=String(s).trim(); if(!s) return 0;
+  s=s.replace(/[×xX＊]/g,'*').replace(/÷/g,'/').replace(/（/g,'(').replace(/）/g,')').replace(/＋/g,'+').replace(/－/g,'-');
+  if(!/^[0-9+\-*/().\s]*$/.test(s)) return NaN;
+  try{const v=Function('"use strict";return ('+s+')')();return (typeof v==='number'&&isFinite(v))?v:NaN}catch(e){return NaN}
+}
+
+/* =========================================================
+   儲存：專案在 localStorage，圖檔圖元在 IndexedDB（失敗時只留在記憶體）
+   ========================================================= */
+const KEY='zhuben.projects.v1';
+const S={projects:[],cur:null,tab:'draw',dwg:null,floorFilter:'',bldgFilter:'',sumB:'',repB:''};
+function loadAll(){try{const j=localStorage.getItem(KEY);if(j)S.projects=JSON.parse(j)||[]}catch(e){}}
+function saveAll(){try{localStorage.setItem(KEY,JSON.stringify(S.projects))}catch(e){toast('瀏覽器儲存空間不足或已停用，資料僅保留到關閉頁面')}}
+const entCache=new Map();
+let idb=null;
+function idbOpen(){return new Promise(res=>{try{const r=indexedDB.open('zhuben',1);r.onupgradeneeded=()=>r.result.createObjectStore('ents');r.onsuccess=()=>{idb=r.result;res()};r.onerror=()=>res()}catch(e){res()}})}
+function entPut(id,ents){entCache.set(id,ents);try{if(idb)idb.transaction('ents','readwrite').objectStore('ents').put(ents,id)}catch(e){}}
+function entDel(id){entCache.delete(id);try{if(idb)idb.transaction('ents','readwrite').objectStore('ents').delete(id)}catch(e){}}
+function entGet(id){if(entCache.has(id))return Promise.resolve(entCache.get(id));return new Promise(res=>{try{if(!idb)return res(null);const r=idb.transaction('ents').objectStore('ents').get(id);r.onsuccess=()=>{if(r.result)entCache.set(id,r.result);res(r.result||null)};r.onerror=()=>res(null)}catch(e){res(null)}})}
+const P=()=>S.projects.find(p=>p.id===S.cur);
+
+/* =========================================================
+   DXF 解析（ASCII DXF；支援 LINE / LWPOLYLINE / POLYLINE / TEXT / MTEXT / INSERT / CIRCLE / ARC / ATTRIB）
+   ========================================================= */
+function decodeDXF(buf){
+  const u8=new Uint8Array(buf);
+  const head=new TextDecoder('latin1').decode(u8.subarray(0,Math.min(u8.length,200000)));
+  const ver=(head.match(/\$ACADVER\s*\r?\n\s*1\s*\r?\n\s*(AC\d+)/)||[])[1]||'';
+  const cp=((head.match(/\$DWGCODEPAGE\s*\r?\n\s*3\s*\r?\n\s*(\S+)/)||[])[1]||'').toUpperCase();
+  let enc='utf-8';
+  if(ver && ver<'AC1021'){ if(cp==='ANSI_950')enc='big5'; else if(cp==='ANSI_936')enc='gbk'; else if(cp==='ANSI_932')enc='shift_jis'; else enc='windows-1252'; }
+  let txt; try{txt=new TextDecoder(enc).decode(u8)}catch(e){txt=new TextDecoder('utf-8').decode(u8)}
+  return {txt,ver,enc};
+}
+function cleanText(s){
+  return s.replace(/\\U\+([0-9A-Fa-f]{4})/g,(m,h)=>String.fromCharCode(parseInt(h,16)))
+    .replace(/\\P/g,' ').replace(/\\[ACcFfHhLlOoKkQqTtWw][^;\\{}]*;?/g,'').replace(/\\S([^;]*)\^([^;]*);/g,'$1/$2')
+    .replace(/[{}]/g,'').replace(/\\~/g,' ').replace(/%%[cC]/g,'Ø').replace(/%%[dD]/g,'°').replace(/%%[pP]/g,'±').replace(/\s+/g,' ').trim();
+}
+function bulgeArc(p1,p2,b,out){
+  const th=4*Math.atan(b),dx=p2[0]-p1[0],dy=p2[1]-p1[1],c=Math.hypot(dx,dy);
+  if(c<1e-12) return;
+  const r=c/(2*Math.sin(th/2)),hgt=r*Math.cos(th/2);
+  const cx=(p1[0]+p2[0])/2-dy/c*hgt, cy=(p1[1]+p2[1])/2+dx/c*hgt;
+  const a1=Math.atan2(p1[1]-cy,p1[0]-cx), R=Math.abs(r), n=Math.max(4,Math.ceil(Math.abs(th)/(Math.PI/16)));
+  for(let i=1;i<n;i++){const a=a1+th*i/n;out.push([cx+R*Math.cos(a),cy+R*Math.sin(a)])}
+}
+function parseDXF(buf){
+  const {txt,ver,enc}=decodeDXF(buf);
+  const L=txt.split(/\r\n|\r|\n/);
+  const pairs=[];
+  for(let i=0;i+1<L.length;i+=2){const c=parseInt(L[i],10);if(isNaN(c)){i--;continue}pairs.push([c,L[i+1]])}
+  let insunits=0;
+  for(let i=0;i<pairs.length-1;i++){if(pairs[i][0]===9&&pairs[i][1].trim()==='$INSUNITS'){insunits=parseInt(pairs[i+1][1],10)||0;break}}
+  // 分段：收集 BLOCKS 與 ENTITIES
+  const blocks={}; const top=[]; let sec=null,curBlock=null,ent=null;
+  const flush=()=>{if(!ent)return; if(sec==='BLOCKS'){if(curBlock&&ent.t!=='BLOCK'&&ent.t!=='ENDBLK')curBlock.ents.push(ent)} else if(sec==='ENTITIES') top.push(ent); ent=null};
+  for(let i=0;i<pairs.length;i++){
+    const [c,vr]=pairs[i]; const v=c===1||c===3?vr:vr.trim();
+    if(c===0){
+      flush();
+      if(v==='SECTION'){const n=pairs[i+1];sec=n&&n[0]===2?n[1].trim():null;i++;continue}
+      if(v==='ENDSEC'){sec=null;continue}
+      if(v==='EOF')break;
+      if(sec==='BLOCKS'&&v==='BLOCK'){curBlock={name:'',bx:0,by:0,ents:[]};ent={t:'BLOCK',g:[]};continue}
+      if(sec==='BLOCKS'&&v==='ENDBLK'){if(curBlock&&curBlock.name)blocks[curBlock.name]=curBlock;curBlock=null;ent={t:'ENDBLK',g:[]};continue}
+      ent={t:v,g:[]};continue;
+    }
+    if(ent){ent.g.push([c,v]); if(ent.t==='BLOCK'&&curBlock){if(c===2)curBlock.name=v;if(c===10)curBlock.bx=+v;if(c===20)curBlock.by=+v}}
+  }
+  flush();
+  const out={lines:[],polys:[],texts:[],arcs:[],layers:{},ver,enc,insunits};
+  const addLayer=(l,k)=>{out.layers[l]=out.layers[l]||{n:0};out.layers[l].n++};
+  const g1=(e,c,d)=>{for(const [k,v] of e.g)if(k===c)return v;return d};
+  function walk(list,T,layerOverride,depth){
+    // T: 轉換函式 (x,y)=>[x,y]，sc: 尺寸比例
+    for(let i=0;i<list.length;i++){
+      const e=list[i]; let lay=g1(e,8,'0'); if(lay==='0'&&layerOverride)lay=layerOverride;
+      switch(e.t){
+      case 'LINE':{const a=T(+g1(e,10,0),+g1(e,20,0)),b=T(+g1(e,11,0),+g1(e,21,0));out.lines.push({l:lay,a,b});addLayer(lay);break}
+      case 'LWPOLYLINE':{
+        const flag=+g1(e,70,0); const vs=[]; let cur=null;
+        for(const [k,v] of e.g){if(k===10){cur={x:+v,y:0,b:0};vs.push(cur)}else if(k===20&&cur)cur.y=+v;else if(k===42&&cur)cur.b=+v}
+        const pts=[]; const closed=(flag&1)===1;
+        for(let j=0;j<vs.length;j++){const p=[vs[j].x,vs[j].y];pts.push(p);const nx=vs[j+1]||(closed?vs[0]:null);if(nx&&vs[j].b)bulgeArc(p,[nx.x,nx.y],vs[j].b,pts)}
+        out.polys.push({l:lay,pts:pts.map(p=>T(p[0],p[1])),closed});addLayer(lay);break}
+      case 'POLYLINE':{
+        const flag=+g1(e,70,0); const vs=[];
+        while(i+1<list.length&&list[i+1].t==='VERTEX'){i++;const ve=list[i];vs.push({x:+g1(ve,10,0),y:+g1(ve,20,0),b:+g1(ve,42,0)})}
+        if(i+1<list.length&&list[i+1].t==='SEQEND')i++;
+        if(flag&(16|64))break; // 3D 網面略過
+        const pts=[],closed=(flag&1)===1;
+        for(let j=0;j<vs.length;j++){const p=[vs[j].x,vs[j].y];pts.push(p);const nx=vs[j+1]||(closed?vs[0]:null);if(nx&&vs[j].b)bulgeArc(p,[nx.x,nx.y],vs[j].b,pts)}
+        out.polys.push({l:lay,pts:pts.map(p=>T(p[0],p[1])),closed});addLayer(lay);break}
+      case 'TEXT':case 'ATTRIB':case 'MTEXT':{
+        let s=''; for(const [k,v] of e.g){if(k===3)s+=v} s+=g1(e,1,'');
+        s=cleanText(s); if(!s)break;
+        let x=+g1(e,10,0),y=+g1(e,20,0);
+        if(e.t!=='MTEXT'&&(+g1(e,72,0)||+g1(e,73,0)||+g1(e,74,0))){x=+g1(e,11,x);y=+g1(e,21,y)}
+        const p=T(x,y),h=+g1(e,40,2.5)*T.sc;
+        out.texts.push({l:lay,x:p[0],y:p[1],h,s,rot:(+g1(e,50,0))+T.rot});addLayer(lay);break}
+      case 'INSERT':{
+        const bl=blocks[g1(e,2,'')]; if(!bl||depth>5)break;
+        const ix=+g1(e,10,0),iy=+g1(e,20,0),sx=+g1(e,41,1)||1,sy=+g1(e,42,1)||1,rot=(+g1(e,50,0))*Math.PI/180;
+        const ca=Math.cos(rot),sa=Math.sin(rot);
+        const T2=(x,y)=>{const X=(x-bl.bx)*sx,Y=(y-bl.by)*sy;return T(ix+X*ca-Y*sa,iy+X*sa+Y*ca)};
+        T2.sc=T.sc*Math.abs(sy); T2.rot=T.rot+(+g1(e,50,0));
+        walk(bl.ents,T2,lay,depth+1);
+        while(i+1<list.length&&(list[i+1].t==='ATTRIB'||list[i+1].t==='SEQEND')){i++;const a=list[i];if(a.t==='ATTRIB')walk([a],T,lay,depth)}
+        break}
+      case 'CIRCLE':{const c=T(+g1(e,10,0),+g1(e,20,0));out.arcs.push({l:lay,x:c[0],y:c[1],r:+g1(e,40,0)*T.sc,a0:0,a1:360,full:true});addLayer(lay);break}
+      case 'ARC':{const c=T(+g1(e,10,0),+g1(e,20,0));out.arcs.push({l:lay,x:c[0],y:c[1],r:+g1(e,40,0)*T.sc,a0:+g1(e,50,0)+T.rot,a1:+g1(e,51,0)+T.rot});addLayer(lay);break}
+      }
+    }
+  }
+  const I=(x,y)=>[x,y]; I.sc=1; I.rot=0;
+  walk(top,I,null,0);
+  // 範圍
+  let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+  const ext=(x,y)=>{if(!isFinite(x)||!isFinite(y))return;if(x<x0)x0=x;if(y<y0)y0=y;if(x>x1)x1=x;if(y>y1)y1=y};
+  out.lines.forEach(l=>{ext(...l.a);ext(...l.b)});out.polys.forEach(p=>p.pts.forEach(q=>ext(...q)));out.arcs.forEach(a=>{ext(a.x-a.r,a.y-a.r);ext(a.x+a.r,a.y+a.r)});out.texts.forEach(t=>ext(t.x,t.y));
+  out.ext=[x0,y0,x1,y1];
+  return out;
+}
+const UNIT={1:0.0254,2:0.3048,4:0.001,5:0.01,6:1};
+
+/* =========================================================
+   DWG 解析：內嵌 LibreDWG（WebAssembly），第一次匯入 DWG 時才載入
+   ========================================================= */
+let _lw=null;
+async function loadLibreDwg(){
+  if(_lw)return _lw;
+  const b64=document.getElementById('lwasm').textContent.trim();
+  const bin=Uint8Array.from(atob(b64),c=>c.charCodeAt(0));
+  const ab=await new Response(new Blob([bin]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+  const inst=await window.createModule({wasmBinary:ab,print:()=>{},printErr:()=>{}});
+  _lw=window['libredwg-web'].LibreDwg.createByWasmInstance(inst);
+  return _lw;
+}
+const DWGVER={AC1012:'R13',AC1014:'R14',AC1015:'AutoCAD 2000',AC1018:'AutoCAD 2004',AC1021:'AutoCAD 2007',AC1024:'AutoCAD 2010',AC1027:'AutoCAD 2013',AC1032:'AutoCAD 2018'};
+async function parseDWG(buf){
+  const lw=await loadLibreDwg();
+  const ver=new TextDecoder('latin1').decode(new Uint8Array(buf,0,6));
+  const dwg=lw.dwg_read_data(buf,window['libredwg-web'].Dwg_File_Type.DWG);
+  if(!dwg)throw new Error('LibreDWG 無法開啟此檔');
+  let db;try{db=lw.convert(dwg)}finally{try{lw.dwg_free(dwg)}catch(e){}}
+  const out={lines:[],polys:[],texts:[],arcs:[],layers:{},ver,enc:'dwg',insunits:+db.header?.INSUNITS||0};
+  const addLayer=l=>{out.layers[l]=out.layers[l]||{n:0};out.layers[l].n++};
+  const blocks={};let ms=null;
+  const msH=new Set(),psH=new Set();
+  (db.tables?.BLOCK_RECORD?.entries||[]).forEach(b=>{
+    if(/^\*model_space$/i.test(b.name)){msH.add(b.handle);if(!ms||(b.entities||[]).length>(ms.entities||[]).length)ms=b;return}
+    if(/^\*paper_space/i.test(b.name)){psH.add(b.handle);return}
+    if(!blocks[b.name]||(b.entities||[]).length>(blocks[b.name].entities||[]).length)blocks[b.name]=b});
+  let msEnts=ms&&ms.entities&&ms.entities.length?ms.entities:(db.entities||[]).filter(e=>msH.has(e.ownerBlockRecordSoftId));
+  if(!msEnts.length)msEnts=(db.entities||[]).filter(e=>!psH.has(e.ownerBlockRecordSoftId));
+  const R2D=180/Math.PI;
+  const txt=(e,T,lay,s,p,h,rot)=>{s=cleanText(String(s||''));if(!s||!p)return;const q=T(p.x,p.y);out.texts.push({l:lay,x:q[0],y:q[1],h:(h||2.5)*T.sc,s,rot:(rot||0)*R2D+T.rot});addLayer(lay)};
+  const polyOut=(vs,closed,lay,T)=>{const pts=[];for(let j=0;j<vs.length;j++){const p=[vs[j].x,vs[j].y];pts.push(p);const nx=vs[j+1]||(closed?vs[0]:null);if(nx&&vs[j].bulge)bulgeArc(p,[nx.x,nx.y],vs[j].bulge,pts)}
+    if(pts.length<2)return;if(!closed&&pts.length>3&&Math.hypot(pts[0][0]-pts[pts.length-1][0],pts[0][1]-pts[pts.length-1][1])<1e-6)closed=true;out.polys.push({l:lay,pts:pts.map(p=>T(p[0],p[1])),closed});addLayer(lay)};
+  function walk(list,T,lo,depth){
+    for(const e of list){
+      if(e.isVisible===false)continue;
+      let lay=e.layer||'0';if(lay==='0'&&lo)lay=lo;
+      switch(e.type){
+      case 'LINE':out.lines.push({l:lay,a:T(e.startPoint.x,e.startPoint.y),b:T(e.endPoint.x,e.endPoint.y)});addLayer(lay);break;
+      case 'LWPOLYLINE':polyOut(e.vertices||[],(e.flag&512)===512,lay,T);break;
+      case 'POLYLINE2D':case 'POLYLINE3D':polyOut((e.vertices||[]).filter(v=>!(v.flag&16)),(e.flag&1)===1,lay,T);break;
+      case 'TEXT':{const al=e.halign||e.valign;txt(e,T,lay,e.text,al&&e.endPoint&&(e.endPoint.x||e.endPoint.y)?e.endPoint:e.startPoint,e.textHeight,e.rotation);break}
+      case 'MTEXT':txt(e,T,lay,e.text,e.insertionPoint,e.textHeight,e.rotation||(e.direction?Math.atan2(e.direction.y,e.direction.x):0));break;
+      case 'ATTRIB':if(e.text)txt(e,T,lay,e.text.text,e.text.startPoint,e.text.textHeight,e.text.rotation);break;
+      case 'CIRCLE':{const c=T(e.center.x,e.center.y);out.arcs.push({l:lay,x:c[0],y:c[1],r:e.radius*T.sc,a0:0,a1:360,full:true});addLayer(lay);break}
+      case 'ARC':{const c=T(e.center.x,e.center.y);out.arcs.push({l:lay,x:c[0],y:c[1],r:e.radius*T.sc,a0:e.startAngle*R2D+T.rot,a1:e.endAngle*R2D+T.rot});addLayer(lay);break}
+      case 'INSERT':{
+        const bl=blocks[e.name];
+        if(bl&&depth<6){const ip=e.insertionPoint||{x:0,y:0},sx=e.xScale||1,sy=e.yScale||1,rot=e.rotation||0,ca=Math.cos(rot),sa=Math.sin(rot),bp=bl.basePoint||{x:0,y:0};
+          const T2=(x,y)=>{const X=(x-bp.x)*sx,Y=(y-bp.y)*sy;return T(ip.x+X*ca-Y*sa,ip.y+X*sa+Y*ca)};T2.sc=T.sc*Math.abs(sy);T2.rot=T.rot+rot*R2D;
+          walk(bl.entities||[],T2,lay,depth+1)}
+        (e.attribs||[]).forEach(a=>walk([a],T,lay,depth));break}
+      }
+    }
+  }
+  const I=(x,y)=>[x,y];I.sc=1;I.rot=0;
+  walk(msEnts,I,null,0);
+  let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+  const ext=(x,y)=>{if(!isFinite(x)||!isFinite(y))return;if(x<x0)x0=x;if(y<y0)y0=y;if(x>x1)x1=x;if(y>y1)y1=y};
+  out.lines.forEach(l=>{ext(...l.a);ext(...l.b)});out.polys.forEach(p=>p.pts.forEach(q=>ext(...q)));out.arcs.forEach(a=>{ext(a.x-a.r,a.y-a.r);ext(a.x+a.r,a.y+a.r)});out.texts.forEach(t=>ext(t.x,t.y));
+  out.ext=[x0,y0,x1,y1];
+  return out;
+}
+
+/* =========================================================
+   幾何
+   ========================================================= */
+function polyArea(p){let a=0;for(let i=0,j=p.length-1;i<p.length;j=i++)a+=(p[j][0]+p[i][0])*(p[i][1]-p[j][1]);return a/2}
+function centroid(p){let x=0,y=0;p.forEach(q=>{x+=q[0];y+=q[1]});return [x/p.length,y/p.length]}
+function inPoly(pt,p){let c=false;for(let i=0,j=p.length-1;i<p.length;j=i++){const [xi,yi]=p[i],[xj,yj]=p[j];if(((yi>pt[1])!==(yj>pt[1]))&&(pt[0]<(xj-xi)*(pt[1]-yi)/(yj-yi)+xi))c=!c}return c}
+function segDist(p,a,b){const dx=b[0]-a[0],dy=b[1]-a[1],l2=dx*dx+dy*dy;let t=l2?((p[0]-a[0])*dx+(p[1]-a[1])*dy)/l2:0;t=Math.max(0,Math.min(1,t));return Math.hypot(p[0]-a[0]-t*dx,p[1]-a[1]-t*dy)}
+function dedupe(pts){const o=[];pts.forEach(p=>{const l=o[o.length-1];if(!l||Math.hypot(l[0]-p[0],l[1]-p[1])>1e-9)o.push(p)});if(o.length>2){const a=o[0],b=o[o.length-1];if(Math.hypot(a[0]-b[0],a[1]-b[1])<1e-9)o.pop()}return o}
+function clipConvex(subject,clip){
+  if(polyArea(clip)<0)clip=clip.slice().reverse();
+  let out=subject;
+  for(let i=0;i<clip.length&&out.length;i++){
+    const A=clip[i],B=clip[(i+1)%clip.length],inp=out;out=[];
+    const ins=p=>(B[0]-A[0])*(p[1]-A[1])-(B[1]-A[1])*(p[0]-A[0])>=-1e-12;
+    const X=(p,q)=>{const a1=B[1]-A[1],b1=A[0]-B[0],c1=a1*A[0]+b1*A[1],a2=q[1]-p[1],b2=p[0]-q[0],c2=a2*p[0]+b2*p[1],d=a1*b2-a2*b1;return d?[(b2*c1-b1*c2)/d,(a1*c2-a2*c1)/d]:p};
+    for(let j=0;j<inp.length;j++){const P1=inp[j],Q=inp[(j+1)%inp.length];if(ins(Q)){if(!ins(P1))out.push(X(P1,Q));out.push(Q)}else if(ins(P1))out.push(X(P1,Q))}
+  }
+  return out;
+}
+const bbox=p=>{let a=[Infinity,Infinity,-Infinity,-Infinity];p.forEach(q=>{a[0]=Math.min(a[0],q[0]);a[1]=Math.min(a[1],q[1]);a[2]=Math.max(a[2],q[0]);a[3]=Math.max(a[3],q[1])});return a};
+
+/* =========================================================
+   圖層角色猜測與自動辨識
+   ========================================================= */
+const ROLE_RX={slab:/SLAB|SLB|版|樓板|FLOOR/i,col:/COL|柱/i,beam:/BEAM|BM|梁|樑|GIRDER/i,wall:/WALL|WAL|牆/i};
+function guessRoles(layers){const r={};Object.keys(layers).forEach(l=>{for(const k of ['slab','col','beam','wall'])if(ROLE_RX[k].test(l)){r[l]=k;break}});return r}
+const RX_SLAB=/^[A-Za-z+＋][A-Za-z0-9+\-']{0,5}$/;
+const RX_COL=/^[A-Z]{0,3}C[0-9A-Za-z\-]*$/i;
+const RX_BEAM=/^([A-Z]{0,2}[BG][0-9A-Za-z\-]*)\s*(?:[(（]?\s*(\d{2,3})\s*[xX×*]\s*(\d{2,3})\s*[)）]?)?$/i;
+const RX_WALL=/^([A-Z]{0,2}W[0-9A-Za-z\-]*)/i;
+
+function recognize(ents,d,P){
+  const k=d.unit, m=v=>v*k; // 圖面單位 → m
+  const role=d.roles||{};
+  const on=r=>l=>role[l]===r;
+  const segsOf=r=>{const s=[];ents.lines.forEach(l=>{if(on(r)(l.l))s.push([l.a,l.b])});ents.polys.forEach(p=>{if(!on(r)(p.l))return;const n=p.pts.length;for(let i=0;i<n-(p.closed?0:1);i++)s.push([p.pts[i],p.pts[(i+1)%n]])});return s};
+  const tol=0.012/k;
+  // 柱
+  const cols=[];
+  const isRect=q=>{if(q.length!==4)return false;for(let i=0;i<4;i++){const a=q[i],b=q[(i+1)%4],c=q[(i+2)%4];const d=(b[0]-a[0])*(c[0]-b[0])+(b[1]-a[1])*(c[1]-b[1]);if(Math.abs(d)>1e-6*Math.hypot(b[0]-a[0],b[1]-a[1])*Math.hypot(c[0]-b[0],c[1]-b[1])+1e-9)return false}return true};
+  ents.polys.forEach(p=>{if(!on('col')(p.l)||(!p.closed&&!isRect(dedupe(p.pts))))return;const pts=dedupe(p.pts);if(pts.length<3)return;const A=Math.abs(polyArea(pts))*k*k;if(A<0.02||A>9)return;
+    let b,h;if(pts.length===4){b=Math.hypot(pts[1][0]-pts[0][0],pts[1][1]-pts[0][1])*k;h=Math.hypot(pts[2][0]-pts[1][0],pts[2][1]-pts[1][1])*k}else{const bb=bbox(pts);b=(bb[2]-bb[0])*k;h=(bb[3]-bb[1])*k}
+    cols.push({pts,shape:'rect',b:Math.round(b*100)/100,h:Math.round(h*100)/100,c:centroid(pts)})});
+  ents.arcs.forEach(a=>{if(!on('col')(a.l)||!a.full)return;const D=2*a.r*k;if(D<0.15||D>3)return;const pts=[];for(let i=0;i<24;i++){const t=i/24*Math.PI*2;pts.push([a.x+a.r*Math.cos(t),a.y+a.r*Math.sin(t)])}cols.push({pts,shape:'circle',b:Math.round(D*100)/100,h:Math.round(D*100)/100,c:[a.x,a.y]})});
+  const T=ents.texts;
+  const nearText=(c,rx,maxd)=>{let best=null,bd=maxd/k;T.forEach(t=>{if(!rx.test(t.s))return;const dd=Math.hypot(t.x-c[0],t.y-c[1]);if(dd<bd){bd=dd;best=t}});return best};
+  cols.forEach(c=>{const t=nearText(c.c,RX_COL,1.5);c.code=t?t.s:'C'});
+  // 平行線配對（梁、牆）
+  function pairs(segs,minW,maxW){
+    const S2=segs.map(([a,b])=>{const dx=b[0]-a[0],dy=b[1]-a[1],L=Math.hypot(dx,dy);return {a,b,L,ux:dx/L,uy:dy/L}}).filter(s=>s.L*k>=0.2);
+    const cand=[];
+    for(let i=0;i<S2.length;i++)for(let j=i+1;j<S2.length;j++){
+      const s=S2[i],t=S2[j]; const cr=s.ux*t.uy-s.uy*t.ux; if(Math.abs(cr)>0.02)continue;
+      const nx=-s.uy,ny=s.ux; const dd=Math.abs((t.a[0]-s.a[0])*nx+(t.a[1]-s.a[1])*ny)*k; if(dd<minW||dd>maxW)continue;
+      const pr=p=>(p[0]-s.a[0])*s.ux+(p[1]-s.a[1])*s.uy; const t0=Math.min(pr(t.a),pr(t.b)),t1=Math.max(pr(t.a),pr(t.b));
+      const o0=Math.max(0,t0),o1=Math.min(s.L,t1); const ov=(o1-o0)*k; if(ov<0.3)continue;
+      cand.push({i,j,dd,ov,s,o0,o1,nx,ny,sign:Math.sign((t.a[0]-s.a[0])*nx+(t.a[1]-s.a[1])*ny)});
+    }
+    cand.sort((p,q)=>p.dd-q.dd||q.ov-p.ov);
+    const used=new Set(),res=[];
+    cand.forEach(c=>{if(used.has(c.i)||used.has(c.j))return;used.add(c.i);used.add(c.j);
+      const s=c.s,half=c.dd/k/2*c.sign;
+      const p0=[s.a[0]+s.ux*c.o0+c.nx*half,s.a[1]+s.uy*c.o0+c.ny*half],p1=[s.a[0]+s.ux*c.o1+c.nx*half,s.a[1]+s.uy*c.o1+c.ny*half];
+      res.push({w:Math.round(c.dd*100)/100,L:Math.round(c.ov*100)/100,p0,p1})});
+    return res;
+  }
+  const beams=pairs(segsOf('beam'),0.15,1.2);
+  beams.forEach(b=>{let best=null,bd=1.0/k;T.forEach(t=>{const mm=t.s.match(RX_BEAM);if(!mm)return;const dd=segDist([t.x,t.y],b.p0,b.p1);if(dd<bd){bd=dd;best=mm}});
+    b.code=best?best[1]:'B'; b.b=b.w; b.h=best&&best[3]?(+best[3])/100:(d.beamH||0.6); if(best&&best[2])b.b=(+best[2])/100;});
+  const walls=pairs(segsOf('wall'),0.08,0.6);
+  walls.forEach(w=>{let best=null,bd=1.0/k;T.forEach(t=>{const mm=t.s.match(RX_WALL);if(!mm)return;const dd=segDist([t.x,t.y],w.p0,w.p1);if(dd<bd){bd=dd;best=mm}});w.code=best?best[1]:'W'});
+  // 版
+  const slabPolys=ents.polys.filter(p=>on('slab')(p.l)&&p.closed).map(p=>dedupe(p.pts)).filter(p=>p.length>=3&&Math.abs(polyArea(p))*k*k>=0.3);
+  const beamSegs=segsOf('beam'),wallSegs=segsOf('wall'),colSegs=segsOf('col');
+  const slabs=slabPolys.map((pts,si)=>{
+    const A=Math.abs(polyArea(pts))*k*k;
+    let code='S',best=null,bd=Infinity,t=d.slabT||P.slabT||0.15; const c=centroid(pts);
+    T.forEach(tx=>{if(!inPoly([tx.x,tx.y],pts))return;const tm=tx.s.match(/^t\s*[=＝]\s*(\d+(?:\.\d+)?)/i);if(tm){const v=+tm[1];t=v>=1?v/100:v;return}
+      const first=tx.s.split(/\s+/)[0];if(!RX_SLAB.test(first))return;const dd=Math.hypot(tx.x-c[0],tx.y-c[1]);if(dd<bd){bd=dd;best=first}
+      const tm2=tx.s.match(/t\s*[=＝]\s*(\d+(?:\.\d+)?)/i);if(tm2){const v=+tm2[1];t=v>=1?v/100:v}});
+    if(best)code=best;
+    // 其他版邊
+    const others=[];slabPolys.forEach((q,qi)=>{if(qi===si)return;for(let i=0;i<q.length;i++)others.push([q[i],q[(i+1)%q.length]])});
+    const colPolys=cols.map(c=>c.pts);
+    const edges=[];
+    for(let i=0;i<pts.length;i++){
+      const a=pts[i],b=pts[(i+1)%pts.length],len=Math.hypot(b[0]-a[0],b[1]-a[1]),Lm=len*k; if(Lm<0.01)continue;
+      const ux=(b[0]-a[0])/len,uy=(b[1]-a[1])/len;
+      const bb=[Math.min(a[0],b[0])-tol,Math.min(a[1],b[1])-tol,Math.max(a[0],b[0])+tol,Math.max(a[1],b[1])+tol];
+      const pick=segs=>segs.filter(([p,q])=>{if(Math.max(p[0],q[0])<bb[0]||Math.min(p[0],q[0])>bb[2]||Math.max(p[1],q[1])<bb[1]||Math.min(p[1],q[1])>bb[3])return false;const l=Math.hypot(q[0]-p[0],q[1]-p[1]);if(!l)return false;return Math.abs(ux*(q[1]-p[1])/l-uy*(q[0]-p[0])/l)<0.035});
+      const cw=pick(wallSegs),cb=pick(beamSegs.concat(others,colSegs));
+      const cp=colPolys.filter(cq=>{const q=bbox(cq);return !(q[2]<bb[0]||q[0]>bb[2]||q[3]<bb[1]||q[1]>bb[3])});
+      // 以投影區間計算覆蓋長度（共線線段 + 柱斷面）
+      const lineIv=segs=>{const iv=[];segs.forEach(([p,q])=>{const dp=Math.abs((p[0]-a[0])*uy-(p[1]-a[1])*ux),dq=Math.abs((q[0]-a[0])*uy-(q[1]-a[1])*ux);if(dp>tol||dq>tol)return;
+        const t0=(p[0]-a[0])*ux+(p[1]-a[1])*uy,t1=(q[0]-a[0])*ux+(q[1]-a[1])*uy;const lo=Math.max(0,Math.min(t0,t1)),hi=Math.min(len,Math.max(t0,t1));if(hi>lo)iv.push([lo,hi])});return iv};
+      const colIv=cp.map(cq=>{let poly=cq;if(polyArea(poly)<0)poly=poly.slice().reverse();let lo=0,hi=len;
+        for(let q=0;q<poly.length;q++){const A=poly[q],B=poly[(q+1)%poly.length];const ex=B[0]-A[0],ey=B[1]-A[1];
+          const num=ex*(a[1]-A[1])-ey*(a[0]-A[0]),den=ex*uy-ey*ux;
+          if(Math.abs(den)<1e-12){if(num<0){lo=1;hi=0;break}continue}
+          const t=-num/den; if(den>0)lo=Math.max(lo,t);else hi=Math.min(hi,t);if(lo>=hi)break}
+        return hi>lo?[lo,hi]:null}).filter(Boolean);
+      const uni=iv=>{iv=iv.slice().sort((x,y)=>x[0]-y[0]);let tot=0,cs=-1,ce=-1;iv.forEach(([x,y])=>{if(x>ce){if(ce>cs)tot+=ce-cs;cs=x;ce=y}else ce=Math.max(ce,y)});if(ce>cs)tot+=ce-cs;return tot};
+      const wIv=lineIv(cw),oIv=lineIv(cb).concat(colIv);
+      const wl=uni(wIv),cov=uni(wIv.concat(oIv));
+      edges.push({a,b,L:Lm,wall:wl*k,free:Math.max(0,len-cov)*k});
+    }
+    // 柱頭重疊
+    const colHits=[];
+    cols.forEach(cc=>{if(cc.shape!=='rect')return;const cl=clipConvex(pts,cc.pts);if(cl.length<3)return;const a=Math.abs(polyArea(cl))*k*k;if(a<0.0005)return;const bb=bbox(cl),w=(bb[2]-bb[0])*k,h=(bb[3]-bb[1])*k;colHits.push({pts:cl,a,w,h,rect:Math.abs(w*h-a)<0.0005})});
+    const tt=fm(t);
+    const sealT=edges.filter(e=>e.free>=0.05).map(e=>`${f2(e.free)}*${tt}`);
+    const wallT=edges.filter(e=>e.wall>=0.05).map(e=>`${f2(e.wall)}*${tt}`);
+    const colT=colHits.map(h=>h.rect?`${fm(Math.round(h.w*1000)/1000)}*${fm(Math.round(h.h*1000)/1000)}`:f2(h.a));
+    return {pts,code,t,A,orig:f2(A),seal:sealT.join('+'),wall:wallT.join('+'),col:colT.join('+'),
+      geo:{pts:pts.map(q=>[q[0]*k,q[1]*k]),edges:edges.map(e=>({a:[e.a[0]*k,e.a[1]*k],b:[e.b[0]*k,e.b[1]*k],L:e.L,wall:e.wall,free:e.free})),cols:colHits.map(h=>h.pts.map(q=>[q[0]*k,q[1]*k]))}};
+  });
+  return {slabs,cols,beams,walls};
+}
+
+/* 剖面／立面圖：讀取樓層標高 */
+function readLevels(ents){
+  const FL=/^(B\d+F?|\d+F|\d+FL|R\d*F?|RF|PR\d*F?|PRF)$/i, EL=/([±+\-])\s*(\d+(?:\.\d+)?)/;
+  const both=/^(B\d+F?|\d+F|R\d*F?|RF|PR\d*F?)\s*(?:FL|EL\.?)?\s*([±+\-])\s*(\d+(?:\.\d+)?)/i;
+  const res=[];const T=ents.texts;
+  const val=(sg,n)=>{let v=+n;if(sg==='-')v=-v;return v};
+  T.forEach(t=>{const m=t.s.match(both);if(m)res.push({name:m[1].toUpperCase(),el:val(m[2],m[3]),y:t.y})});
+  if(!res.length){
+    const els=T.filter(t=>EL.test(t.s)&&!FL.test(t.s));
+    T.filter(t=>FL.test(t.s.trim())).forEach(t=>{let best=null,bd=Infinity;els.forEach(e=>{const dy=Math.abs(e.y-t.y);if(dy>Math.max(t.h,e.h)*2.5)return;const dd=dy*10+Math.abs(e.x-t.x)*0.01;if(dd<bd){bd=dd;best=e}});
+      if(best){const m=best.s.match(EL);res.push({name:t.s.trim().toUpperCase(),el:val(m[1],m[2]),y:t.y})}});
+  }
+  const seen=new Map();res.forEach(r=>{if(!seen.has(r.name))seen.set(r.name,r)});
+  let arr=[...seen.values()];
+  // 標高若以 mm 書寫（例如 +4200）轉為 m
+  if(arr.some(r=>Math.abs(r.el)>200))arr.forEach(r=>r.el/=1000);
+  arr.sort((a,b)=>a.el-b.el);
+  arr.forEach((r,i)=>{r.h=arr[i+1]?Math.round((arr[i+1].el-r.el)*1000)/1000:null});
+  return arr;
+}
+function normFloor(n,floors){n=String(n).toUpperCase().replace(/FL$/,'');const names=floors.map(f=>f.name);
+  const cands=[n,n.replace(/F$/,''),n==='RF'?'R1':n,n.replace(/^R(\d+)F$/,'R$1')];
+  for(const c of cands){const hit=names.find(x=>x.toUpperCase()===c);if(hit)return hit}return ''}
+
+/* =========================================================
+   數量計算
+   ========================================================= */
+function floorH(P,f){const x=P.floors.find(z=>z.name===f);return x?+x.h:3}
+function slabCalc(s){
+  const o=r2(evalExpr(s.orig)),se=r2(evalExpr(s.seal)),w=r2(evalExpr(s.wall)),c=r2(evalExpr(s.col));
+  const bad=[s.orig,s.seal,s.wall,s.col].some(x=>isNaN(evalExpr(x)));
+  const ded=r2(-(w+c)),real=r2(o+se+ded),t=num(s.t,0.15);
+  return {o,se,w:-w,c:-c,ded,real,conc:r2(o*t),t,bad};
+}
+function memCalc(m,P){
+  const n=num(m.n,1),ts=num(m.ts,num(P.slabT,0.15)),H=num(m.H,floorH(P,m.floor)),b=num(m.b,0),h=num(m.h,0),L=num(m.L,0),ded=num(m.ded,0),op=num(m.open,0);
+  let form=0,conc=0,ft='',ct='';
+  if(m.type==='柱'){const hn=r2(H-ts);
+    if(m.shape==='circle'){form=Math.PI*b*hn*n-ded;conc=Math.PI*b*b/4*hn*n;ft=`π×${fm(b)}×${fm(hn)}×${n}`;ct=`π×${fm(b)}²/4×${fm(hn)}×${n}`}
+    else{form=2*(b+h)*hn*n-ded;conc=b*h*hn*n;ft=`2×(${fm(b)}+${fm(h)})×${fm(hn)}×${n}`;ct=`${fm(b)}×${fm(h)}×${fm(hn)}×${n}`}
+    if(ded)ft+=` − ${fm(ded)}`;}
+  else if(m.type==='梁'){const hs=r2(h-ts);const side=m.edge?`${fm(hs)}+${fm(h)}`:`2×${fm(hs)}`;const sv=m.edge?hs+h:2*hs;
+    form=(b+sv)*L*n-ded;conc=b*h*L*n;ft=`(${fm(b)}+${side})×${fm(L)}${n!==1?'×'+n:''}`;ct=`${fm(b)}×${fm(h)}×${fm(L)}${n!==1?'×'+n:''}`;if(ded)ft+=` − ${fm(ded)}`}
+  else if(m.type==='牆'){const hn=r2(H-ts);form=2*L*hn*n-2*op-ded;conc=(L*hn*n-op)*b;ft=`2×${fm(L)}×${fm(hn)}${n!==1?'×'+n:''}`+(op?` − 2×${fm(op)}`:'')+(ded?` − ${fm(ded)}`:'');ct=`(${fm(L)}×${fm(hn)}${n!==1?'×'+n:''}${op?' − '+fm(op):''})×${fm(b)}`}
+  else{form=evalExpr(m.fx);conc=evalExpr(m.cx);ft=m.fx||'0';ct=m.cx||'0'}
+  return {form:r2(form),conc:r2(conc),ft,ct,bad:!isFinite(form)||!isFinite(conc),H,ts};
+}
+function floorsDesc(P){return P.floors.map(f=>f.name).slice().reverse()}
+function sortSlabs(P,list){
+  const fo=floorsDesc(P);
+  return list.slice().sort((a,b)=>(P.bldgs.indexOf(a.bldg)-P.bldgs.indexOf(b.bldg))||(fo.indexOf(a.floor)-fo.indexOf(b.floor))||(+a.no-+b.no));
+}
+function groupFloor(rows){ // 同樓層內：同版編號群組，群組依最小版內編排序
+  const g=new Map();rows.forEach(r=>{if(!g.has(r.code))g.set(r.code,[]);g.get(r.code).push(r)});
+  return [...g.values()].map(x=>x.sort((a,b)=>+a.no-+b.no)).sort((a,b)=>+a[0].no-+b[0].no);
+}
+function summary(P,bldg){
+  const fl=floorsDesc(P),F={};fl.forEach(f=>F[f]={form:{版:0,梁:0,柱:0,牆:0,其他:0},conc:{版:0,梁:0,柱:0,牆:0,其他:0}});
+  P.slabs.forEach(s=>{if(bldg&&s.bldg!==bldg)return;const c=slabCalc(s);if(!F[s.floor])return;F[s.floor].form.版+=c.real;F[s.floor].conc.版+=c.conc});
+  P.members.forEach(m=>{if(bldg&&m.bldg!==bldg)return;const c=memCalc(m,P);if(!F[m.floor])return;const k=['梁','柱','牆'].includes(m.type)?m.type:'其他';F[m.floor].form[k]+=c.form;F[m.floor].conc[k]+=c.conc});
+  return {fl,F};
+}
+
+/* =========================================================
+   範例 DXF（二層結構平面：4 個版 + 懸臂版、9 支柱、梁、1 道牆）
+   ========================================================= */
+function sampleDXF(){
+  const o=[];const P=(...a)=>o.push(...a.map(String));
+  P(0,'SECTION',2,'HEADER',9,'$ACADVER',1,'AC1027',9,'$INSUNITS',70,4,0,'ENDSEC',0,'SECTION',2,'ENTITIES');
+  const line=(l,x1,y1,x2,y2)=>P(0,'LINE',8,l,10,x1,20,y1,30,0,11,x2,21,y2,31,0);
+  const lw=(l,pts,cl=1)=>{P(0,'LWPOLYLINE',8,l,90,pts.length,70,cl);pts.forEach(p=>P(10,p[0],20,p[1]))};
+  const text=(l,x,y,h,s)=>P(0,'TEXT',8,l,10,x,20,y,30,0,40,h,1,s);
+  const xs=[0,6000,12000],ys=[0,5000,10000];
+  xs.forEach((x,i)=>{line('AXIS',x,-1500,x,12500);text('AXIS',x-150,-2100,400,String(i+1))});
+  ys.forEach((y,i)=>{line('AXIS',-1500,y,13500,y);text('AXIS',-2300,y-150,400,'ABC'[i])});
+  xs.forEach(x=>ys.forEach(y=>{lw('S-COL',[[x-250,y-250],[x+250,y-250],[x+250,y+250],[x-250,y+250]]);text('S-TEXT',x+320,y+320,250,'C1')}));
+  ys.forEach(y=>{for(let i=0;i<2;i++){if(y===0&&i===0)continue;const a=xs[i]+250,b=xs[i+1]-250;line('S-BEAM',a,y-150,b,y-150);line('S-BEAM',a,y+150,b,y+150);text('S-TEXT',(a+b)/2-700,y+200,220,'B1 30x60')}});
+  xs.forEach(x=>{for(let j=0;j<2;j++){const a=ys[j]+250,b=ys[j+1]-250;line('S-BEAM',x-150,a,x-150,b);line('S-BEAM',x+150,a,x+150,b);text('S-TEXT',x+200,(a+b)/2,220,'B2(30x70)')}});
+  line('S-WALL',250,-100,5750,-100);line('S-WALL',250,100,5750,100);text('S-TEXT',2600,-450,220,'W1');
+  const lab=[['S1','S2'],['S1','S3']];
+  for(let i=0;i<2;i++)for(let j=0;j<2;j++){const x0=xs[i]+150,x1=xs[i+1]-150,y0=(i===0&&j===0)?100:ys[j]+150,y1=ys[j+1]-150;lw('S-SLAB',[[x0,y0],[x1,y0],[x1,y1],[x0,y1]]);text('S-TEXT',(x0+x1)/2-200,(y0+y1)/2,350,lab[j][i])}
+  lw('S-SLAB',[[-250,10150],[12250,10150],[12250,11200],[-250,11200]]);text('S-TEXT',5800,10600,300,'CS');text('S-TEXT',6800,10600,200,'t=12');
+  text('S-TEXT',3000,-3200,500,'二、三層結構平面圖 S=1/100');
+  P(0,'ENDSEC',0,'EOF');
+  return o.join('\n');
+}
+function makeSample(){
+  const p=newProject({code:'DEMO-01',name:'範例專案：三層RC辦公樓',bldgs:['A'],floors:[{name:'F',h:1.5},{name:'1',h:4.2},{name:'2',h:3.6},{name:'3',h:3.6},{name:'R1',h:3.0}],slabT:0.15,beamH:0.6});
+  p.sample=true;
+  const buf=new TextEncoder().encode(sampleDXF()).buffer;
+  const ents=parseDXF(buf);
+  const d={id:uid(),name:'範例_二三層結構平面.dxf',kind:'結構',floors:['2','3'],bldg:'A',unit:0.001,roles:guessRoles(ents.layers),layerCount:Object.keys(ents.layers).length,ext:ents.ext,ver:ents.ver};
+  p.drawings.push(d);entPut(d.id,ents);
+  applyRecog(p,d,recognize(ents,d,p));
+  // 手動範例：基礎版與樓梯
+  p.slabs.push({id:uid(),bldg:'A',floor:'F',code:'FS',no:nextNo(p),t:0.3,orig:'12.5*10.5',seal:'(12.5+10.5)*2*0.3',wall:'',col:'',src:'man'});
+  p.members.push({id:uid(),bldg:'A',floor:'1',type:'其他',code:'樓梯',fx:'1.2*4.5*2+0.18*4.5*2*12/12',cx:'1.2*4.5*0.15*2',src:'man'});
+  return p;
+}
+
+/* =========================================================
+   專案
+   ========================================================= */
+function newProject(o){return {id:uid(),code:o.code||'',name:o.name||'',bldgs:o.bldgs||['A'],floors:o.floors||[],slabT:o.slabT??0.15,beamH:o.beamH??0.6,created:Date.now(),drawings:[],slabs:[],members:[],seq:0}}
+function nextNo(P){P.seq=(P.seq||0)+1;return P.seq}
+function applyRecog(P,d,R){
+  P.slabs=P.slabs.filter(s=>s.src!==d.id);P.members=P.members.filter(m=>m.src!==d.id);
+  const floors=d.floors.length?d.floors:[P.floors[0]?.name||'1'];
+  floors.forEach(f=>{
+    R.slabs.slice().sort((a,b)=>a.code.localeCompare(b.code)||(b.pts[0][1]-a.pts[0][1])).forEach(s=>P.slabs.push({id:uid(),bldg:d.bldg,floor:f,code:s.code,no:nextNo(P),t:s.t,orig:s.orig,seal:s.seal,wall:s.wall,col:s.col,src:d.id,geo:s.geo}));
+    const grp=new Map();
+    R.cols.forEach(c=>{const key=`${c.code}|${c.shape}|${c.b}|${c.h}`;if(!grp.has(key))grp.set(key,{type:'柱',code:c.code,shape:c.shape,b:c.b,h:c.h,n:0,geo:[]});const g=grp.get(key);g.n++;g.geo.push(c.c.map(v=>v*d.unit))});
+    R.beams.forEach(b=>{const key=`B|${b.code}|${b.b}|${b.h}`;if(!grp.has(key))grp.set(key,{type:'梁',code:b.code,b:b.b,h:b.h,L:0,n:1,lens:[],geo:[]});const g=grp.get(key);g.L=Math.round((g.L+b.L)*100)/100;g.lens.push(b.L);g.geo.push([b.p0.map(v=>v*d.unit),b.p1.map(v=>v*d.unit)])});
+    R.walls.forEach(w=>{const key=`W|${w.code}|${w.w}`;if(!grp.has(key))grp.set(key,{type:'牆',code:w.code,b:w.w,L:0,n:1,lens:[],geo:[]});const g=grp.get(key);g.L=Math.round((g.L+w.L)*100)/100;g.lens.push(w.L);g.geo.push([w.p0.map(v=>v*d.unit),w.p1.map(v=>v*d.unit)])});
+    grp.forEach(g=>P.members.push(Object.assign({id:uid(),bldg:d.bldg,floor:f,src:d.id},g)));
+  });
+  d.recog={slabs:R.slabs.length,cols:R.cols.length,beams:R.beams.length,walls:R.walls.length,at:Date.now()};
+}
+
+/* =========================================================
+   畫面
+   ========================================================= */
+function go(view){S.view=view;render()}
+function render(){
+  const main=$('#main'),top=$('#top');main.hidden=false;top.hidden=false;
+  if(S.view==='projects'||!P()){S.view='projects';$('#crumb').textContent='專案列表';main.innerHTML=viewProjects();return}
+  const p=P();$('#crumb').textContent=`${p.code}　${p.name}`;
+  main.innerHTML=viewProject(p);
+  if(S.tab==='draw')mountCad();
+}
+function viewProjects(){
+  const list=S.projects.slice().sort((a,b)=>b.created-a.created);
+  return `<div class="stack">
+  <div class="row" style="justify-content:space-between"><h2>專案</h2></div>
+  <div class="panel stack">
+    <h3>建立專案</h3>
+    <form id="fNew" class="stack">
+      <div class="field"><label for="nName">專案名稱</label><input id="nName" type="text" placeholder="例：○○新建工程" required></div>
+      <div class="row"><button class="btn pri" type="submit">建立專案</button></div>
+    </form>
+  </div>
+  <h3>既有專案</h3>
+  ${list.length?`<div class="cards">${list.map(p=>`<button class="pcard" data-act="open" data-id="${p.id}"><span class="code">${esc(p.code)}${p.sample?' · <span class="pill warn">範例</span>':''}</span><span class="nm">${esc(p.name)}</span><span class="muted small">棟別 ${esc(p.bldgs.join('、'))}　樓層 ${p.floors.length} 層　圖檔 ${p.drawings.length}　版 ${p.slabs.length} 筆　構件 ${p.members.length} 筆</span></button>`).join('')}</div>`:`<div class="empty">尚無專案。</div>`}
+  <div class="row"><button class="btn" data-act="sample">載入範例專案</button><label class="btn" for="impJson">匯入專案備份 (.json)</label><input id="impJson" type="file" accept=".json,application/json" hidden></div>
+  </div>`;
+}
+const TABS=[['draw','圖檔匯入與辨識'],['slab','版明細'],['mem','梁柱牆構件'],['rep','模板報表'],['sum','分層數量統計總表'],['guide','計算導引圖'],['set','專案設定']];
+function viewProject(p){
+  let body='';
+  switch(S.tab){case 'draw':body=viewDraw(p);break;case 'slab':body=viewSlab(p);break;case 'mem':body=viewMem(p);break;case 'rep':body=viewRep(p);break;case 'sum':body=viewSum(p);break;case 'guide':body=viewGuide(p);break;case 'set':body=viewSet(p);break}
+  return `${p.sample?`<div class="note small" style="margin-bottom:12px">這是範例專案，資料由內建的範例 DXF 自動辨識產生，可隨意修改或刪除。</div>`:''}
+  <nav class="tabs" role="tablist">${TABS.map(([k,v])=>`<button class="tab" role="tab" aria-selected="${S.tab===k}" data-act="tab" data-k="${k}">${v}</button>`).join('')}</nav>${body}`;
+}
+const opts=(arr,sel)=>arr.map(x=>`<option${x===sel?' selected':''}>${esc(x)}</option>`).join('');
+
+/* ---------- 圖檔 ---------- */
+function viewDraw(p){
+  const d=p.drawings.find(x=>x.id===S.dwg)||p.drawings[0]; S.dwg=d?.id||null;
+  const roles=['','slab','col','beam','wall'],rn={'':'—',slab:'版外框',col:'柱',beam:'梁',wall:'牆'};
+  return `<div class="layout-draw">
+  <aside class="stack">
+    <div class="panel stack">
+      <h3>匯入圖檔</h3>
+      <div class="field"><label for="impKind">圖別</label><select id="impKind">${opts(['結構','平面','剖面','立面'],'結構')}</select></div>
+      <div class="field"><label for="impB">棟別</label><select id="impB">${opts(p.bldgs)}</select></div>
+      <div class="field"><label>適用樓層（標準層可複選）</label><div class="row small">${p.floors.map(f=>`<label><input type="checkbox" class="impF" value="${esc(f.name)}"> ${esc(f.name)}</label>`).join('')}</div></div>
+      <label class="btn pri" for="impFile">選擇 DXF / DWG 檔</label><input id="impFile" type="file" accept=".dxf,.dwg" multiple hidden>
+      <p class="muted small" style="margin:0">可直接匯入 DWG（R13～AutoCAD 2018 以後格式，內建 LibreDWG 引擎解析）或 DXF。</p>
+    </div>
+    <div class="dlist">${p.drawings.length?p.drawings.map(x=>`<button class="ditem" data-act="dwg" data-id="${x.id}" aria-current="${x.id===S.dwg}"><b>${esc(x.name)}</b><span class="muted small">${esc(x.kind)}圖 · ${esc(x.bldg)}棟 · 樓層 ${esc(x.floors.join('、')||'未指定')}</span>${x.recog?`<span class="small"><span class="pill ok">已辨識</span> 版${x.recog.slabs} 柱${x.recog.cols} 梁${x.recog.beams} 牆${x.recog.walls}</span>`:''}</button>`).join(''):'<div class="empty small">尚未匯入圖檔</div>'}</div>
+  </aside>
+  <section class="stack" style="min-width:0">
+  ${d?`
+    <div class="cadbox" id="cadbox"><canvas id="cad"></canvas>
+      <div class="cadtools"><button class="btn sm" data-act="fit">全圖</button><button class="btn sm" data-act="togTxt">文字</button><button class="btn sm" data-act="togOv">辨識圖層</button></div>
+      <div class="cadinfo" id="cadinfo" hidden></div></div>
+    <div class="legend"><span><i style="background:rgba(120,150,255,.45)"></i>版</span><span><i style="background:var(--col)"></i>柱／扣柱頭</span><span><i style="background:#7fd0a8"></i>梁中心線</span><span><i style="background:var(--wall)"></i>牆／扣版牆接頭</span><span><i style="background:var(--seal)"></i>封模（自由邊）</span><span class="muted">滾輪縮放、拖曳平移，點選版可看導引</span></div>
+    <div class="panel stack">
+      <div class="row" style="justify-content:space-between"><h3>${esc(d.name)}</h3><button class="btn sm danger" data-act="dwgdel" data-id="${d.id}">刪除圖檔</button></div>
+      <div class="grid2">
+        <div class="field"><label for="dKind">圖別</label><select id="dKind" data-dk="kind">${opts(['結構','平面','剖面','立面'],d.kind)}</select></div>
+        <div class="field"><label for="dB">棟別</label><select id="dB" data-dk="bldg">${opts(p.bldgs,d.bldg)}</select></div>
+        <div class="field"><label for="dU">圖面單位</label><select id="dU" data-dk="unit">${[['0.001','mm'],['0.01','cm'],['1','m']].map(([v,t])=>`<option value="${v}"${+v===d.unit?' selected':''}>${t}</option>`).join('')}</select></div>
+        <div class="field"><label>適用樓層</label><div class="row small">${p.floors.map(f=>`<label><input type="checkbox" class="dF" value="${esc(f.name)}"${d.floors.includes(f.name)?' checked':''}> ${esc(f.name)}</label>`).join('')}</div></div>
+      </div>
+      <div class="muted small">${/\.dwg$/i.test(d.name)?'DWG':'DXF'} 版本 ${esc(DWGVER[d.ver]||d.ver||'?')}，圖層 ${d.layerCount}。請確認下方圖層對應（已依圖層名稱自動猜測）：</div>
+      <div class="layers"><table><tbody id="layerRows"></tbody></table></div>
+      <div class="row">
+        <button class="btn pri" data-act="recog">自動辨識並寫入數量表</button>
+        ${d.kind==='剖面'||d.kind==='立面'?'<button class="btn" data-act="levels">讀取樓層標高</button>':''}
+        <span class="muted small">重新辨識會取代此圖先前產生的資料，手動新增的列不受影響。</span>
+      </div>
+      <div id="recogOut">${d.recog?`<div class="stat"><div><b>${d.recog.slabs}</b><span>版</span></div><div><b>${d.recog.cols}</b><span>柱</span></div><div><b>${d.recog.beams}</b><span>梁段</span></div><div><b>${d.recog.walls}</b><span>牆段</span></div></div>`:''}</div>
+    </div>`:`<div class="empty">匯入 DXF 後，圖面會顯示在這裡。可先打開「載入範例專案」看完整流程。</div>`}
+  </section></div>`;
+}
+const V={ents:null,cx:0,cy:0,z:1,txt:true,ov:true,hi:null,sel:null};
+async function mountCad(){
+  const p=P(),d=p.drawings.find(x=>x.id===S.dwg); if(!d)return;
+  const ents=await entGet(d.id);
+  const box=$('#cadbox'); if(!box)return;
+  if(!ents){box.insertAdjacentHTML('beforeend','<div class="cadinfo">此瀏覽器找不到圖檔內容（可能已清除網站資料），請重新匯入。</div>');return}
+  V.ents=ents;V.d=d;
+  // 圖層表
+  const tb=$('#layerRows');
+  if(tb){const rn={'':'—',slab:'版外框',col:'柱',beam:'梁',wall:'牆'};
+    tb.innerHTML=Object.entries(ents.layers).sort((a,b)=>a[0].localeCompare(b[0])).map(([l,o])=>`<tr><td>${esc(l)}</td><td class="muted num">${o.n}</td><td><select data-layer="${esc(l)}">${Object.entries(rn).map(([k,v])=>`<option value="${k}"${(d.roles[l]||'')===k?' selected':''}>${v}</option>`).join('')}</select></td></tr>`).join('')}
+  const cv=$('#cad');
+  const resize=()=>{const r=box.getBoundingClientRect(),dpr=window.devicePixelRatio||1;cv.width=r.width*dpr;cv.height=r.height*dpr;V.W=r.width;V.H=r.height;V.dpr=dpr;draw()};
+  V.resize=resize;
+  if(V.hi&&V.hi.dwg===d.id){fitTo(V.hi.bb)}else fitTo(ents.ext);
+  resize();
+  let drag=null;
+  cv.onpointerdown=e=>{drag={x:e.clientX,y:e.clientY,cx:V.cx,cy:V.cy,moved:false};cv.setPointerCapture(e.pointerId)};
+  cv.onpointermove=e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.abs(dx)+Math.abs(dy)>3)drag.moved=true;V.cx=drag.cx-dx/V.z;V.cy=drag.cy+dy/V.z;draw()};
+  cv.onpointerup=e=>{if(drag&&!drag.moved)pick(e);drag=null};
+  cv.onwheel=e=>{e.preventDefault();const r=cv.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top;const wx=V.cx+(mx-V.W/2)/V.z,wy=V.cy-(my-V.H/2)/V.z;const f=Math.exp(-e.deltaY*0.0015);V.z*=f;V.cx=wx-(mx-V.W/2)/V.z;V.cy=wy+(my-V.H/2)/V.z;draw()};
+  if(window.ResizeObserver){new ResizeObserver(()=>resize()).observe(box)}
+  if(V.hi&&V.hi.dwg===d.id)showInfoForSlab(V.hi.slab);
+}
+function fitTo(bb){const [x0,y0,x1,y1]=bb;if(!isFinite(x0))return;V.cx=(x0+x1)/2;V.cy=(y0+y1)/2;V._fit=bb;const box=$('#cadbox');const r=box?box.getBoundingClientRect():{width:800,height:500};V.z=Math.min(r.width/((x1-x0)||1),r.height/((y1-y0)||1))*0.88}
+const hue=s=>{let h=0;for(const c of s)h=(h*31+c.charCodeAt(0))%360;return h};
+function draw(){
+  const cv=$('#cad');if(!cv||!V.ents)return;const g=cv.getContext('2d'),E=V.ents,d=V.d,k=d.unit;
+  g.setTransform(V.dpr,0,0,V.dpr,0,0);g.fillStyle=getComputedStyle(document.documentElement).getPropertyValue('--cad-bg')||'#0d1230';g.fillRect(0,0,V.W,V.H);
+  const X=x=>(x-V.cx)*V.z+V.W/2,Y=y=>V.H/2-(y-V.cy)*V.z;
+  const col=l=>{const r=d.roles[l];if(V.ov&&r){return {slab:'rgba(150,170,255,.95)',col:'#ffb54d',beam:'#7fd0a8',wall:'#ff7a7f'}[r]}return `hsla(${hue(l)},35%,70%,.55)`};
+  g.lineWidth=1;
+  const byL={};E.lines.forEach(l=>{(byL[l.l]=byL[l.l]||[]).push(l)});
+  for(const l in byL){g.strokeStyle=col(l);g.beginPath();byL[l].forEach(s=>{g.moveTo(X(s.a[0]),Y(s.a[1]));g.lineTo(X(s.b[0]),Y(s.b[1]))});g.stroke()}
+  E.polys.forEach(p=>{g.strokeStyle=col(p.l);g.beginPath();p.pts.forEach((q,i)=>i?g.lineTo(X(q[0]),Y(q[1])):g.moveTo(X(q[0]),Y(q[1])));if(p.closed)g.closePath();g.stroke()});
+  E.arcs.forEach(a=>{g.strokeStyle=col(a.l);g.beginPath();g.arc(X(a.x),Y(a.y),a.r*V.z,-a.a1*Math.PI/180,-a.a0*Math.PI/180);g.stroke()});
+  if(V.txt){g.fillStyle='rgba(225,230,255,.85)';E.texts.forEach(t=>{const px=t.h*V.z;if(px<5)return;g.save();g.translate(X(t.x),Y(t.y));g.rotate(-t.rot*Math.PI/180);g.font=`${px}px "Noto Sans TC",sans-serif`;g.fillText(t.s,0,0);g.restore()})}
+  // 辨識結果覆蓋
+  if(V.ov){
+    const p=P();const mine=p.slabs.filter(s=>s.src===d.id&&s.geo&&s.floor===(d.floors[0]||s.floor));
+    mine.forEach(s=>{const G=s.geo;g.fillStyle=(V.hi&&V.hi.slab===s.id)?'rgba(255,230,120,.38)':'rgba(120,150,255,.16)';g.beginPath();G.pts.forEach((q,i)=>{const x=X(q[0]/k),y=Y(q[1]/k);i?g.lineTo(x,y):g.moveTo(x,y)});g.closePath();g.fill();
+      G.edges.forEach(e=>{if(e.free>=0.05){g.strokeStyle='#5cc8ff';g.lineWidth=3;g.setLineDash([8,4]);g.beginPath();g.moveTo(X(e.a[0]/k),Y(e.a[1]/k));g.lineTo(X(e.b[0]/k),Y(e.b[1]/k));g.stroke();g.setLineDash([])}
+        if(e.wall>=0.05){g.strokeStyle='#ff7a7f';g.lineWidth=3;g.beginPath();g.moveTo(X(e.a[0]/k),Y(e.a[1]/k));g.lineTo(X(e.b[0]/k),Y(e.b[1]/k));g.stroke()}});
+      g.fillStyle='rgba(255,181,77,.8)';G.cols.forEach(c=>{g.beginPath();c.forEach((q,i)=>{const x=X(q[0]/k),y=Y(q[1]/k);i?g.lineTo(x,y):g.moveTo(x,y)});g.closePath();g.fill()});
+      const c=centroid(G.pts);g.fillStyle='#fff';g.font='600 12px "IBM Plex Mono",monospace';g.textAlign='center';g.fillText(`${s.code} #${s.no}`,X(c[0]/k),Y(c[1]/k)+16);g.textAlign='left';g.lineWidth=1});
+    const mm=p.members.filter(m=>m.src===d.id&&m.floor===(d.floors[0]||m.floor));
+    mm.forEach(m=>{if(m.type==='梁'||m.type==='牆'){g.strokeStyle=m.type==='梁'?'rgba(127,208,168,.9)':'rgba(255,122,127,.9)';g.lineWidth=2;(m.geo||[]).forEach(([a,b])=>{g.beginPath();g.moveTo(X(a[0]/k),Y(a[1]/k));g.lineTo(X(b[0]/k),Y(b[1]/k));g.stroke()})}});
+    g.lineWidth=1;
+  }
+}
+function pick(e){
+  const cv=$('#cad'),r=cv.getBoundingClientRect(),wx=V.cx+(e.clientX-r.left-V.W/2)/V.z,wy=V.cy-(e.clientY-r.top-V.H/2)/V.z;
+  const p=P(),d=V.d,k=d.unit;
+  const s=p.slabs.find(s=>s.src===d.id&&s.geo&&s.floor===(d.floors[0]||s.floor)&&inPoly([wx*k,wy*k],s.geo.pts));
+  if(s){V.hi={dwg:d.id,slab:s.id};draw();showInfoForSlab(s.id)}else{V.hi=null;draw();$('#cadinfo').hidden=true}
+}
+function showInfoForSlab(id){
+  const p=P(),s=p.slabs.find(x=>x.id===id);const box=$('#cadinfo');if(!s||!box)return;const c=slabCalc(s);
+  box.hidden=false;box.innerHTML=`<b>${esc(s.code)}</b> 版內編 ${s.no}（${esc(s.floor)} 層）<br>原始模板 <span class="num">${f2(c.o)}</span>　封模 <span class="num">${f2(c.se)}</span><br>扣版牆接頭 <span class="num">${fs(c.w)}</span>　扣柱頭 <span class="num">${fs(c.c)}</span><br>真實模板 <b class="num">${f2(c.real)}</b> m²　<button class="btn sm" data-act="gslab" data-id="${s.id}" style="margin-top:6px">看導引圖</button>`;
+}
+
+/* ---------- 版明細 ---------- */
+function viewSlab(p){
+  const ff=S.floorFilter,bf=S.bldgFilter;
+  const rows=sortSlabs(p,p.slabs).filter(s=>(!ff||s.floor===ff)&&(!bf||s.bldg===bf));
+  return `<div class="stack">
+  <div class="row" style="justify-content:space-between">
+    <div class="row"><label class="small muted" for="sfB">棟別</label><select id="sfB" data-filter="bldgFilter"><option value="">全部</option>${opts(p.bldgs,bf)}</select>
+    <label class="small muted" for="sfF">樓層</label><select id="sfF" data-filter="floorFilter"><option value="">全部</option>${opts(floorsDesc(p),ff)}</select></div>
+    <button class="btn pri" data-act="addslab">新增版</button></div>
+  <p class="muted small" style="margin:0">計算式欄可輸入 <span class="num">4*0.15+1.5*0.15</span> 這類算式。扣除欄填正值，報表會以負值顯示。真實模板 = 原始模板 + 封模 − 扣版牆接頭 − 扣柱頭。</p>
+  <div class="scroll"><table class="data"><thead><tr><th>棟別</th><th>樓層</th><th>版編號</th><th>版內編</th><th>版厚 t</th><th>原始模板（面積式）</th><th>封模式</th><th>扣版牆接頭式</th><th>扣柱頭式</th><th class="r">真實模板 m²</th><th class="r">混凝土 m³</th><th>來源</th><th></th></tr></thead>
+  <tbody>${rows.map(s=>{const c=slabCalc(s);return `<tr data-id="${s.id}" class="${c.bad?'bad':''}">
+    <td><select data-sk="bldg">${opts(p.bldgs,s.bldg)}</select></td>
+    <td><select data-sk="floor">${opts(p.floors.map(f=>f.name),s.floor)}</select></td>
+    <td><input class="w4" type="text" data-sk="code" value="${esc(s.code)}"></td>
+    <td><input class="w4 num" type="number" data-sk="no" value="${esc(s.no)}"></td>
+    <td><input class="w4 num" type="number" step="0.01" data-sk="t" value="${esc(s.t)}"></td>
+    <td><input class="w10 num" type="text" data-sk="orig" value="${esc(s.orig)}"></td>
+    <td><input class="w10 num" type="text" data-sk="seal" value="${esc(s.seal)}"></td>
+    <td><input class="w14 num" type="text" data-sk="wall" value="${esc(s.wall)}"></td>
+    <td><input class="w14 num" type="text" data-sk="col" value="${esc(s.col)}"></td>
+    <td class="r num" data-out="real"><b>${f2(c.real)}</b></td><td class="r num" data-out="conc">${f2(c.conc)}</td>
+    <td>${s.src==='man'?'<span class="pill man">手動</span>':'<span class="pill dxf">DXF</span>'}</td>
+    <td><div class="row" style="flex-wrap:nowrap;gap:4px"><button class="btn sm" data-act="gslab" data-id="${s.id}">導引</button>${s.geo?`<button class="btn sm" data-act="locate" data-id="${s.id}">定位</button>`:''}<button class="btn sm danger" data-act="delslab" data-id="${s.id}" aria-label="刪除">刪</button></div></td></tr>`}).join('')||`<tr><td colspan="13"><div class="empty">沒有資料。匯入結構圖自動辨識，或按「新增版」手動輸入。</div></td></tr>`}</tbody></table></div></div>`;
+}
+/* ---------- 構件 ---------- */
+function viewMem(p){
+  const ff=S.floorFilter,bf=S.bldgFilter;
+  const fo=floorsDesc(p),to=['柱','梁','牆','其他'];
+  const rows=p.members.filter(m=>(!ff||m.floor===ff)&&(!bf||m.bldg===bf)).sort((a,b)=>(fo.indexOf(a.floor)-fo.indexOf(b.floor))||(to.indexOf(a.type)-to.indexOf(b.type))||String(a.code).localeCompare(String(b.code)));
+  const inp=(m,k,cls='w4',step='0.01')=>`<input class="${cls} num" type="number" step="${step}" data-mk="${k}" value="${esc(m[k]??'')}">`;
+  return `<div class="stack">
+  <div class="row" style="justify-content:space-between">
+    <div class="row"><label class="small muted" for="mfB">棟別</label><select id="mfB" data-filter="bldgFilter"><option value="">全部</option>${opts(p.bldgs,bf)}</select>
+    <label class="small muted" for="mfF">樓層</label><select id="mfF" data-filter="floorFilter"><option value="">全部</option>${opts(fo,ff)}</select></div>
+    <div class="row"><button class="btn" data-act="addmem" data-k="柱">＋柱</button><button class="btn" data-act="addmem" data-k="梁">＋梁</button><button class="btn" data-act="addmem" data-k="牆">＋牆</button><button class="btn" data-act="addmem" data-k="其他">＋其他（樓梯、基礎…）</button></div></div>
+  <p class="muted small" style="margin:0">尺寸單位 m。柱、牆高 H 留空時採該樓層層高；版厚 ts 留空時採專案預設。梁長 L 取柱面間淨跨，「外側」打勾表示邊梁外側模板做到全梁深。</p>
+  <div class="scroll"><table class="data"><thead><tr><th>棟別</th><th>樓層</th><th>類型</th><th>編號</th><th>b / D</th><th>h</th><th>L</th><th>H</th><th>ts</th><th>數量</th><th>外側/圓柱</th><th>扣模板 m²</th><th>開口 m²</th><th>模板式（其他）</th><th>混凝土式（其他）</th><th class="r">模板 m²</th><th class="r">混凝土 m³</th><th>來源</th><th></th></tr></thead>
+  <tbody>${rows.map(m=>{const c=memCalc(m,p);const o=m.type==='其他';return `<tr data-id="${m.id}" class="${c.bad?'bad':''}">
+    <td><select data-mk="bldg">${opts(p.bldgs,m.bldg)}</select></td><td><select data-mk="floor">${opts(p.floors.map(f=>f.name),m.floor)}</select></td>
+    <td>${esc(m.type)}</td><td><input class="w4" type="text" data-mk="code" value="${esc(m.code)}"></td>
+    <td>${o?'':inp(m,'b')}</td><td>${m.type==='柱'||m.type==='梁'?inp(m,'h'):''}</td><td>${m.type==='梁'||m.type==='牆'?inp(m,'L','w6'):''}</td>
+    <td>${m.type==='柱'||m.type==='牆'?`<input class="w4 num" type="number" step="0.01" data-mk="H" value="${esc(m.H??'')}" placeholder="${fm(floorH(p,m.floor))}">`:''}</td>
+    <td>${o?'':`<input class="w4 num" type="number" step="0.01" data-mk="ts" value="${esc(m.ts??'')}" placeholder="${fm(p.slabT)}">`}</td>
+    <td>${o?'':inp(m,'n','w4','1')}</td>
+    <td>${m.type==='梁'?`<input type="checkbox" data-mk="edge"${m.edge?' checked':''} aria-label="外側邊梁">`:m.type==='柱'?`<input type="checkbox" data-mk="shape"${m.shape==='circle'?' checked':''} aria-label="圓柱">`:''}</td>
+    <td>${o?'':inp(m,'ded')}</td><td>${m.type==='牆'?inp(m,'open'):''}</td>
+    <td>${o?`<input class="w10 num" type="text" data-mk="fx" value="${esc(m.fx||'')}">`:''}</td><td>${o?`<input class="w10 num" type="text" data-mk="cx" value="${esc(m.cx||'')}">`:''}</td>
+    <td class="r num" data-out="form"><b>${f2(c.form)}</b></td><td class="r num" data-out="conc">${f2(c.conc)}</td>
+    <td>${m.src==='man'?'<span class="pill man">手動</span>':'<span class="pill dxf">DXF</span>'}</td>
+    <td><div class="row" style="flex-wrap:nowrap;gap:4px"><button class="btn sm" data-act="gmem" data-id="${m.id}">導引</button><button class="btn sm danger" data-act="delmem" data-id="${m.id}" aria-label="刪除">刪</button></div></td></tr>`}).join('')||`<tr><td colspan="19"><div class="empty">沒有構件。</div></td></tr>`}</tbody></table></div></div>`;
+}
+/* ---------- 模板報表 ---------- */
+function nowStr(){const d=new Date(),h=d.getHours(),ap=h<12?'上午':'下午',hh=h%12||12,z=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}　${ap} ${z(hh)}:${z(d.getMinutes())}:${z(d.getSeconds())}`}
+function repData(p,bldg){
+  const fo=floorsDesc(p),rows=p.slabs.filter(s=>s.bldg===bldg),floors=[];
+  fo.forEach(f=>{const fr=rows.filter(s=>s.floor===f);if(!fr.length)return;floors.push({f,groups:groupFloor(fr)})});
+  return floors;
+}
+function viewRep(p){
+  const b=S.repB&&p.bldgs.includes(S.repB)?S.repB:p.bldgs[0];
+  const floors=repData(p,b);
+  const T={o:0,se:0,w:0,c:0,ded:0,real:0};
+  let body='';
+  const nR=floors.reduce((a,f)=>a+f.groups.reduce((x,g)=>x+g.length,0)+1,0);
+  let firstB=true;
+  floors.forEach(F=>{
+    const st={o:0,se:0,w:0,c:0,ded:0,real:0};const nF=F.groups.reduce((x,g)=>x+g.length,0)+1;let firstF=true;
+    F.groups.forEach(g=>g.forEach((s,i)=>{const c=slabCalc(s);['o','se','w','c','ded','real'].forEach(k=>st[k]+=c[k]);
+      body+=`<tr class="click" data-act="gslab" data-id="${s.id}" title="點選查看計算導引圖">${firstB?`<td rowspan="${nR}" style="vertical-align:middle">${esc(b)}</td>`:''}${firstF?`<td rowspan="${nF}" class="c">${esc(F.f)}</td>`:''}${i===0?`<td rowspan="${g.length}" class="n">${esc(s.code)}</td>`:''}<td class="n">${esc(s.no)}</td>
+      <td class="n">${f2(c.o)}</td><td class="f">${esc(s.orig)}</td><td class="n">${f2(c.se)}</td><td class="f">${esc(s.seal).replace(/\+/g,' +<br>')}</td><td class="n">${fs(c.w)}</td><td class="f">${esc(s.wall).replace(/\+/g,' +<br>')}</td><td class="n">${fs(c.c)}</td><td class="f">${esc(s.col).replace(/\+/g,' +<br>')}</td><td class="n">${fs(c.ded)}</td><td class="n real">${f2(c.real)}</td></tr>`;firstB=false;firstF=false}));
+    body+=`<tr class="sub"><td colspan="2" class="c">樓層小計</td><td class="n">${f2(st.o)}</td><td></td><td class="n">${f2(st.se)}</td><td></td><td class="n">${f2(st.w)}</td><td></td><td class="n">${f2(st.c)}</td><td></td><td class="n">${f2(st.ded)}</td><td class="n real">${f2(st.real)}</td></tr>`;
+    Object.keys(T).forEach(k=>T[k]+=st[k]);
+  });
+  return `<div class="stack">
+  <div class="row" style="justify-content:space-between"><div class="row"><label class="small muted" for="repB">棟別</label><select id="repB" data-filter="repB">${opts(p.bldgs,b)}</select><span class="muted small">點選任一列可查看該版的計算導引圖。</span></div>
+  <div class="row"><button class="btn" data-act="copyrep">複製表格（貼到 Excel）</button>${standalone?'<button class="btn" data-act="print">列印</button><button class="btn" data-act="csvrep">下載 CSV</button>':''}</div></div>
+  <div class="scroll"><div class="sheet" id="sheet">
+    <h1>模板報表</h1>
+    <div class="meta">工程代號:${esc(p.code)}　　工程名稱:${esc(p.name)}<br>印制時間:${nowStr()}<br>棟別:${esc(b)}</div>
+    ${floors.length?`<table class="rep" id="repT"><thead><tr><th rowspan="2">棟別</th><th rowspan="2">樓層</th><th rowspan="2">版編號</th><th rowspan="2">版內編</th><th colspan="10" style="letter-spacing:1.2em">版明細</th></tr>
+    <tr><th>原始模板</th><th>計算式</th><th>封模</th><th>計算式</th><th>扣版牆接頭</th><th>計算式</th><th>扣柱頭</th><th>計算式</th><th>扣接頭合計</th><th>真實模板</th></tr></thead>
+    <tbody>${body}<tr class="tot"><td colspan="4" class="c">合計</td><td class="n">${f2(T.o)}</td><td></td><td class="n">${f2(T.se)}</td><td></td><td class="n">${f2(T.w)}</td><td></td><td class="n">${f2(T.c)}</td><td></td><td class="n">${f2(T.ded)}</td><td class="n real">${f2(T.real)}</td></tr></tbody></table>`:'<p>此棟別尚無版資料。</p>'}
+  </div></div></div>`;
+}
+function repTSV(p,b){
+  const out=[['棟別','樓層','版編號','版內編','原始模板','計算式','封模','計算式','扣版牆接頭','計算式','扣柱頭','計算式','扣接頭合計','真實模板']];
+  const T={o:0,se:0,w:0,c:0,ded:0,real:0};
+  repData(p,b).forEach(F=>{const st={o:0,se:0,w:0,c:0,ded:0,real:0};F.groups.forEach(g=>g.forEach(s=>{const c=slabCalc(s);Object.keys(st).forEach(k=>st[k]+=c[k]);out.push([b,F.f,s.code,s.no,f2(c.o),s.orig,f2(c.se),s.seal,f2(c.w),s.wall,f2(c.c),s.col,f2(c.ded),f2(c.real)])}));
+    out.push(['','樓層小計','','',f2(st.o),'',f2(st.se),'',f2(st.w),'',f2(st.c),'',f2(st.ded),f2(st.real)]);Object.keys(T).forEach(k=>T[k]+=st[k])});
+  out.push(['合計','','','',f2(T.o),'',f2(T.se),'',f2(T.w),'',f2(T.c),'',f2(T.ded),f2(T.real)]);
+  return out;
+}
+/* ---------- 分層統計 ---------- */
+function viewSum(p){
+  const b=S.sumB||'';const {fl,F}=summary(p,b);
+  const K=['版','梁','柱','牆','其他'];
+  const tbl=(key,unit,title)=>{const tot={};K.forEach(k=>tot[k]=0);let all=0;
+    const rows=fl.map(f=>{const r=F[f][key];const s=K.reduce((a,k)=>a+r[k],0);K.forEach(k=>tot[k]+=r[k]);all+=s;return `<tr><td>${esc(f)}</td>${K.map(k=>`<td class="r num">${f2(r[k])}</td>`).join('')}<td class="r num"><b>${f2(s)}</b></td></tr>`}).join('');
+    return `<div class="panel stack"><div class="row" style="justify-content:space-between"><h3>${title}</h3><span class="muted small">單位 ${unit}</span></div>
+    <div class="scroll"><table class="data"><thead><tr><th>樓層</th>${K.map(k=>`<th class="r">${k}</th>`).join('')}<th class="r">樓層合計</th></tr></thead><tbody>${rows}<tr class="foot"><td>總計</td>${K.map(k=>`<td class="r num">${f2(tot[k])}</td>`).join('')}<td class="r num">${f2(all)}</td></tr></tbody></table></div></div>`};
+  return `<div class="stack">
+  <div class="row" style="justify-content:space-between"><div class="row"><label class="small muted" for="sumB">棟別</label><select id="sumB" data-filter="sumB"><option value="">全部棟別</option>${opts(p.bldgs,b)}</select></div>
+  <div class="row"><button class="btn" data-act="copysum">複製兩張總表（貼到 Excel）</button>${standalone?'<button class="btn" data-act="print">列印</button>':''}</div></div>
+  ${tbl('form','m²','模板分層數量統計總表')}${tbl('conc','m³','混凝土分層數量統計總表')}
+  <p class="muted small">版模板取「真實模板」；版混凝土 = 原始模板面積 × 版厚。梁混凝土取全梁深 b×h×淨跨，柱、牆高度算到版底（H − ts），三者不重複計算。</p></div>`;
+}
+/* ---------- 導引圖 ---------- */
+function svgSlab(s){
+  const c=slabCalc(s);
+  if(!s.geo){
+    return `<svg viewBox="0 0 520 300" role="img" aria-label="版模板示意">
+    <rect x="70" y="60" width="380" height="180" class="g-fill"/><text x="260" y="150" text-anchor="middle" class="g-txt">原始模板 ${esc(s.orig||'0')} = ${f2(c.o)} m²</text>
+    <line x1="70" y1="240" x2="450" y2="240" class="g-seal"/><text x="260" y="262" text-anchor="middle" class="g-lbl">自由邊 → 封模 = 長 × t</text>
+    <line x1="450" y1="60" x2="450" y2="240" class="g-wall"/><text x="460" y="150" class="g-lbl">牆</text>
+    <rect x="70" y="60" width="26" height="26" class="g-col"/><text x="104" y="78" class="g-lbl">柱頭重疊 → 扣柱頭</text>
+    <text x="260" y="22" text-anchor="middle" class="g-lbl">${esc(s.code)} · 版內編 ${esc(s.no)} · t=${fm(c.t)} m（手動輸入，無圖面幾何）</text></svg>`;
+  }
+  const G=s.geo,bb=bbox(G.pts),W=520,pad=56,H=Math.round(Math.max(200,Math.min(420,pad*2+(W-2*pad)*((bb[3]-bb[1])/((bb[2]-bb[0])||1))))),sc=Math.min((W-2*pad)/((bb[2]-bb[0])||1),(H-2*pad)/((bb[3]-bb[1])||1));
+  const X=x=>pad+(x-bb[0])*sc+((W-2*pad)-(bb[2]-bb[0])*sc)/2,Y=y=>H-pad-(y-bb[1])*sc-((H-2*pad)-(bb[3]-bb[1])*sc)/2;
+  const cen=centroid(G.pts);
+  let o=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(s.code)} 版幾何導引圖"><polygon points="${G.pts.map(q=>X(q[0])+','+Y(q[1])).join(' ')}" class="g-fill"/>`;
+  G.cols.forEach(cp=>o+=`<polygon points="${cp.map(q=>X(q[0])+','+Y(q[1])).join(' ')}" class="g-col"/>`);
+  const area=polyArea(G.pts);
+  G.edges.forEach(e=>{const mx=(X(e.a[0])+X(e.b[0]))/2,my=(Y(e.a[1])+Y(e.b[1]))/2;let nx=-(Y(e.b[1])-Y(e.a[1])),ny=X(e.b[0])-X(e.a[0]);const l=Math.hypot(nx,ny)||1;nx/=l;ny/=l;
+    // 讓標註朝外
+    const cx=X(cen[0]),cy=Y(cen[1]);if((mx+nx-cx)*(mx-cx)+(my+ny-cy)*(my-cy)<(mx-cx)**2+(my-cy)**2){nx=-nx;ny=-ny}
+    if(e.wall>=0.05)o+=`<line x1="${X(e.a[0])}" y1="${Y(e.a[1])}" x2="${X(e.b[0])}" y2="${Y(e.b[1])}" class="g-wall"/>`;
+    if(e.free>=0.05)o+=`<line x1="${X(e.a[0])}" y1="${Y(e.a[1])}" x2="${X(e.b[0])}" y2="${Y(e.b[1])}" class="g-seal"/>`;
+    o+=`<text x="${mx+nx*18}" y="${my+ny*18+4}" text-anchor="middle" class="g-txt">${f2(e.L)}</text>`});
+  o+=`<text x="${X(cen[0])}" y="${Y(cen[1])-6}" text-anchor="middle" class="g-txt" style="font-weight:600">${esc(s.code)} #${esc(s.no)}</text><text x="${X(cen[0])}" y="${Y(cen[1])+12}" text-anchor="middle" class="g-lbl">A = ${f2(Math.abs(area))} m²</text></svg>`;
+  return o;
+}
+function slabFormula(s){
+  const c=slabCalc(s);
+  return `原始模板   = ${s.orig||'0'} = ${f2(c.o)}
+封模       = ${s.seal||'0'} = ${f2(c.se)}
+扣版牆接頭 = −(${s.wall||'0'}) = ${fs(c.w)}
+扣柱頭     = −(${s.col||'0'}) = ${fs(c.c)}
+扣接頭合計 = ${fs(c.w)} + ${fs(c.c)} = ${fs(c.ded)}
+真實模板   = ${f2(c.o)} + ${f2(c.se)} ${c.ded<0?'− '+f2(-c.ded):'+ 0.00'} = ${f2(c.real)} m²
+混凝土     = ${f2(c.o)} × ${fm(c.t)} = ${f2(c.conc)} m³`;
+}
+function svgMember(m,p){
+  const c=memCalc(m,p),b=num(m.b,0),h=num(m.h,0),L=num(m.L,0);
+  if(m.type==='柱')return `<svg viewBox="0 0 520 320" role="img" aria-label="柱模板示意">
+    <rect x="200" y="40" width="${m.shape==='circle'?120:110}" height="220" class="g-conc" ${m.shape==='circle'?'rx="60" ry="14"':''}/>
+    <line x1="200" y1="40" x2="200" y2="260" class="g-form"/><line x1="${m.shape==='circle'?320:310}" y1="40" x2="${m.shape==='circle'?320:310}" y2="260" class="g-form"/>
+    <rect x="140" y="20" width="240" height="20" class="g-ink" style="fill:var(--hl)"/><text x="390" y="34" class="g-lbl">版 ts=${fm(c.ts)}</text>
+    <line x1="180" y1="40" x2="180" y2="260" class="g-dim"/><text x="172" y="155" text-anchor="end" class="g-txt">H−ts=${fm(r2(c.H-c.ts))}</text>
+    <line x1="200" y1="280" x2="310" y2="280" class="g-dim"/><text x="255" y="298" text-anchor="middle" class="g-txt">${m.shape==='circle'?'D='+fm(b):'b='+fm(b)+'  h='+fm(h)}</text>
+    <text x="340" y="150" class="g-lbl">四周側模 = 周長 × (H−ts)</text><line x1="120" y1="260" x2="400" y2="260" class="g-ink"/><text x="410" y="264" class="g-lbl">樓板面</text></svg>`;
+  if(m.type==='梁'){const hs=r2(h-c.ts);return `<svg viewBox="0 0 520 300" role="img" aria-label="梁斷面模板示意">
+    <rect x="60" y="60" width="400" height="26" class="g-ink" style="fill:var(--hl)"/><text x="470" y="78" class="g-lbl">版</text>
+    <rect x="200" y="86" width="120" height="140" class="g-conc"/><rect x="200" y="60" width="120" height="26" class="g-conc"/>
+    <line x1="200" y1="86" x2="200" y2="226" class="g-form"/><line x1="${m.edge?320:320}" y1="${m.edge?60:86}" x2="320" y2="226" class="g-form"/><line x1="200" y1="226" x2="320" y2="226" class="g-form"/>
+    <line x1="180" y1="86" x2="180" y2="226" class="g-dim"/><text x="172" y="160" text-anchor="end" class="g-txt">h−ts=${fm(hs)}</text>
+    <line x1="350" y1="60" x2="350" y2="226" class="g-dim"/><text x="358" y="150" class="g-txt">h=${fm(h)}</text>
+    <line x1="200" y1="250" x2="320" y2="250" class="g-dim"/><text x="260" y="268" text-anchor="middle" class="g-txt">b=${fm(b)}　L=${fm(L)}</text>
+    <text x="60" y="40" class="g-lbl">梁模板 = (底模 b + 側模 ${m.edge?'(h−ts)+h':'2×(h−ts)'}) × L</text></svg>`}
+  if(m.type==='牆')return `<svg viewBox="0 0 520 300" role="img" aria-label="牆模板示意">
+    <rect x="80" y="40" width="360" height="200" class="g-conc"/><rect x="80" y="20" width="360" height="20" class="g-ink" style="fill:var(--hl)"/>
+    ${num(m.open,0)?'<rect x="220" y="110" width="80" height="80" style="fill:var(--surface)" class="g-ink"/><text x="260" y="155" text-anchor="middle" class="g-lbl">開口</text>':''}
+    <line x1="80" y1="260" x2="440" y2="260" class="g-dim"/><text x="260" y="278" text-anchor="middle" class="g-txt">L=${fm(L)}　t=${fm(b)}</text>
+    <line x1="60" y1="40" x2="60" y2="240" class="g-dim"/><text x="54" y="140" text-anchor="end" class="g-txt">${fm(r2(c.H-c.ts))}</text>
+    <text x="80" y="14" class="g-lbl">兩面模板 = 2 × L × (H−ts) − 2 × 開口</text></svg>`;
+  return `<svg viewBox="0 0 520 160" role="img" aria-label="其他構件"><rect x="40" y="30" width="440" height="100" class="g-fill"/><text x="260" y="85" text-anchor="middle" class="g-lbl">依輸入算式計算（樓梯、基礎、女兒牆等）</text></svg>`;
+}
+function memFormula(m,p){const c=memCalc(m,p);return `${m.type} ${m.code||''}（${m.floor} 層）
+模板   = ${c.ft} = ${f2(c.form)} m²
+混凝土 = ${c.ct} = ${f2(c.conc)} m³${m.lens&&m.lens.length>1?`\n各段長 L = ${m.lens.map(fm).join(' + ')} = ${fm(m.L)}`:''}`}
+function viewGuide(p){
+  const demo={type:'柱',b:0.5,h:0.5,n:1,floor:p.floors[1]?.name||'1'},beam={type:'梁',b:0.3,h:0.6,L:5.5,n:1,floor:demo.floor},wall={type:'牆',b:0.2,L:5.5,n:1,open:1.2,floor:demo.floor};
+  const slab={code:'S1',no:'—',orig:'5.7*4.75',seal:'',wall:'5.5*0.15',col:'0.1*0.15+0.1*0.15+0.1*0.1+0.1*0.1',t:0.15};
+  return `<div class="stack">
+  <div class="panel stack"><h3>檢核步驟</h3>
+  <div class="formula">1. 圖檔：確認圖層對應正確（版外框、柱、梁、牆），單位為 mm。
+2. 版明細：每一版點「導引」，核對面積、各邊長、紅色牆接頭邊、藍色封模邊、橘色柱頭重疊。
+3. 模板報表：樓層小計 = 各版加總；真實模板 = 原始 + 封模 + 扣接頭合計（負值）。
+4. 梁柱牆：核對 b、h、L、H 與數量，梁長取柱面間淨跨。
+5. 總表：模板與混凝土依樓層彙總，總計應等於各明細之和。</div></div>
+  <div class="guide-grid">
+   <div class="gcard"><h3>版：原始模板、封模、扣版牆接頭、扣柱頭</h3>${svgSlab(slab)}<div class="formula">原始模板 = 版淨面積（梁、牆面之間）
+封模 = 自由邊長 × 版厚 t（懸臂版外緣、開口邊）
+扣版牆接頭 = 版與牆相接長度 × t
+扣柱頭 = 柱斷面伸入版範圍的面積
+真實模板 = 原始模板 + 封模 − 扣版牆接頭 − 扣柱頭
+混凝土 = 原始模板 × t</div></div>
+   <div class="gcard"><h3>柱</h3>${svgMember(demo,p)}<div class="formula">模板 = 2 × (b + h) × (H − ts) × 數量 − 扣除
+混凝土 = b × h × (H − ts) × 數量
+圓柱：模板 = π × D × (H − ts)，混凝土 = π × D² / 4 × (H − ts)</div></div>
+   <div class="gcard"><h3>梁</h3>${svgMember(beam,p)}<div class="formula">模板 = (b + 2 × (h − ts)) × L
+外側邊梁 = (b + (h − ts) + h) × L
+混凝土 = b × h × L（L 取柱面間淨跨）</div></div>
+   <div class="gcard"><h3>牆</h3>${svgMember(wall,p)}<div class="formula">模板 = 2 × L × (H − ts) − 2 × 開口面積
+混凝土 = (L × (H − ts) − 開口面積) × t</div></div>
+  </div></div>`;
+}
+/* ---------- 設定 ---------- */
+function viewSet(p){
+  return `<div class="stack" style="max-width:820px">
+  <div class="panel stack"><h3>專案資料</h3><div class="grid2">
+    <div class="field"><label for="pCode">工程代號</label><input id="pCode" type="text" data-pk="code" value="${esc(p.code)}"></div>
+    <div class="field"><label for="pName">工程名稱</label><input id="pName" type="text" data-pk="name" value="${esc(p.name)}"></div>
+    <div class="field"><label for="pB">棟別（逗號分隔）</label><input id="pB" type="text" data-pk="bldgs" value="${esc(p.bldgs.join(','))}"></div>
+    <div class="field"><label for="pT">預設版厚 ts (m)</label><input id="pT" type="number" step="0.01" data-pk="slabT" value="${esc(p.slabT)}"></div>
+    <div class="field"><label for="pBH">梁深預設 (m，辨識不到梁深時採用)</label><input id="pBH" type="number" step="0.01" data-pk="beamH" value="${esc(p.beamH)}"></div>
+  </div></div>
+  <div class="panel stack"><div class="row" style="justify-content:space-between"><h3>樓層與層高（由下而上）</h3><button class="btn sm" data-act="addfloor">新增樓層</button></div>
+  <table class="data"><thead><tr><th>順序</th><th>樓層名稱</th><th>層高 H (m)</th><th></th></tr></thead><tbody>
+  ${p.floors.map((f,i)=>`<tr data-i="${i}"><td class="num">${i+1}</td><td><input class="w6" type="text" data-fk="name" value="${esc(f.name)}"></td><td><input class="w6 num" type="number" step="0.01" data-fk="h" value="${esc(f.h)}"></td><td><div class="row" style="gap:4px"><button class="btn sm" data-act="fup" data-i="${i}">上移</button><button class="btn sm danger" data-act="fdel" data-i="${i}">刪除</button></div></td></tr>`).join('')}</tbody></table>
+  <p class="muted small" style="margin:0">層高 = 本層樓板面到上一層樓板面的距離，柱、牆高度預設採用此值。剖面圖可用「讀取樓層標高」自動填入。</p></div>
+  <div class="panel stack"><h3>備份</h3><div class="row"><button class="btn" data-act="copyjson">複製專案 JSON</button>${standalone?'<button class="btn" data-act="dljson">下載專案備份</button>':''}<button class="btn danger" data-act="delproj">刪除此專案</button></div>
+  <p class="muted small" style="margin:0">專案資料只存在這個瀏覽器中。換電腦前請先備份，再於專案列表「匯入專案備份」。</p><div id="delConfirm"></div></div></div>`;
+}
+
+/* =========================================================
+   對話框
+   ========================================================= */
+function openDlg(title,html){$('#dlgT').textContent=title;$('#dlgB').innerHTML=html;const d=$('#dlg');if(!d.open){try{d.showModal()}catch(e){d.setAttribute('open','')}}}
+
+/* =========================================================
+   事件
+   ========================================================= */
+async function importFiles(files){
+  const p=P();const kind=$('#impKind').value,bldg=$('#impB').value,floors=[...document.querySelectorAll('.impF:checked')].map(x=>x.value);
+  for(const f of files){
+    const buf=await f.arrayBuffer();const head=new TextDecoder('latin1').decode(new Uint8Array(buf.slice(0,6)));
+    const isDwg=/\.dwg$/i.test(f.name)||/^AC10\d\d/.test(head);
+    try{
+      if(isDwg){toast(`正在解析 DWG：${f.name}（第一次需載入解析引擎，約數秒）`);await new Promise(r=>setTimeout(r,60))}
+      const ents=isDwg?await parseDWG(buf):parseDXF(buf);
+      if(!ents.lines.length&&!ents.polys.length&&!ents.texts.length)throw new Error('沒有讀到任何圖元');
+      const unit=UNIT[ents.insunits]||0.001;
+      const d={id:uid(),name:f.name,kind,floors,bldg,unit,roles:guessRoles(ents.layers),layerCount:Object.keys(ents.layers).length,ext:ents.ext,ver:ents.ver};
+      p.drawings.push(d);entPut(d.id,ents);S.dwg=d.id;
+      toast(`已匯入 ${f.name}：線 ${ents.lines.length}、多段線 ${ents.polys.length}、文字 ${ents.texts.length}`);
+    }catch(e){openDlg(isDwg?'無法讀取 DWG':'無法讀取 DXF',isDwg?`<p>「${esc(f.name)}」（${esc(DWGVER[head]||head)}）解析失敗：${esc(e.message||e)}。</p><p class="muted small">內建的 LibreDWG 引擎支援 R13 到 AutoCAD 2018 以後的 DWG，少數含特殊物件的檔案可能失敗。遇到時可在 AutoCAD 另存為 DXF 再匯入。</p>`:`<p>「${esc(f.name)}」讀取失敗：${esc(e.message)}。請確認是 ASCII 格式的 DXF（二進位 DXF 請改存 ASCII）。</p>`)}
+  }
+  saveAll();render();
+}
+document.addEventListener('submit',e=>{
+  if(e.target.id==='fNew'){e.preventDefault();
+    const p=newProject({code:'',name:$('#nName').value.trim(),bldgs:['A'],floors:['F','1','2','3','4','R1'].map(n=>({name:n,h:3.4})),slabT:0.15});
+    S.projects.push(p);S.cur=p.id;S.tab='draw';S.dwg=null;saveAll();go('project');toast('專案已建立，下一步匯入結構圖 DWG 或 DXF')}
+});
+document.addEventListener('change',async e=>{
+  const t=e.target,p=P();
+  if(t.id==='impFile'){if(t.files.length)importFiles([...t.files]);return}
+  if(t.id==='impJson'){const f=t.files[0];if(!f)return;try{const o=JSON.parse(await f.text());const arr=Array.isArray(o)?o:[o];arr.forEach(x=>{if(x&&x.id&&x.floors){x.id=uid();(x._ents||[]).forEach(([id,en])=>entPut(id,en));delete x._ents;S.projects.push(x)}});saveAll();render();toast('已匯入專案')}catch(err){toast('備份檔格式不正確')}return}
+  if(t.dataset.filter){S[t.dataset.filter]=t.value;render();return}
+  if(!p)return;
+  if(t.dataset.layer!==undefined){const d=p.drawings.find(x=>x.id===S.dwg);if(t.value)d.roles[t.dataset.layer]=t.value;else delete d.roles[t.dataset.layer];saveAll();draw();return}
+  if(t.dataset.dk){const d=p.drawings.find(x=>x.id===S.dwg);d[t.dataset.dk]=t.dataset.dk==='unit'?+t.value:t.value;saveAll();render();return}
+  if(t.classList.contains('dF')){const d=p.drawings.find(x=>x.id===S.dwg);d.floors=[...document.querySelectorAll('.dF:checked')].map(x=>x.value);saveAll();return}
+  if(t.dataset.sk){const tr=t.closest('tr'),s=p.slabs.find(x=>x.id===tr.dataset.id);s[t.dataset.sk]=t.value;if(s.src!=='man'&&['orig','seal','wall','col'].includes(t.dataset.sk))s.edited=true;saveAll();
+    const c=slabCalc(s);tr.querySelector('[data-out=real]').innerHTML=`<b>${f2(c.real)}</b>`;tr.querySelector('[data-out=conc]').textContent=f2(c.conc);tr.classList.toggle('bad',c.bad);if(c.bad)toast('算式只能包含數字與 + − × ÷ ( )');return}
+  if(t.dataset.mk){const tr=t.closest('tr'),m=p.members.find(x=>x.id===tr.dataset.id);const k=t.dataset.mk;
+    if(k==='edge')m.edge=t.checked;else if(k==='shape')m.shape=t.checked?'circle':'rect';else if(['b','h','L','H','ts','n','ded','open'].includes(k))m[k]=t.value===''?null:+t.value;else m[k]=t.value;
+    saveAll();const c=memCalc(m,p);tr.querySelector('[data-out=form]').innerHTML=`<b>${f2(c.form)}</b>`;tr.querySelector('[data-out=conc]').textContent=f2(c.conc);tr.classList.toggle('bad',c.bad);return}
+  if(t.dataset.pk){const k=t.dataset.pk;if(k==='bldgs')p.bldgs=t.value.split(/[,，、\s]+/).filter(Boolean);else if(k==='slabT'||k==='beamH')p[k]=num(t.value,p[k]);else p[k]=t.value;saveAll();if(k==='code'||k==='name')$('#crumb').textContent=`${p.code}　${p.name}`;return}
+  if(t.dataset.fk){const i=+t.closest('tr').dataset.i,f=p.floors[i];if(t.dataset.fk==='name'){const old=f.name,nw=t.value.trim();if(!nw)return;f.name=nw;p.slabs.forEach(s=>{if(s.floor===old)s.floor=nw});p.members.forEach(m=>{if(m.floor===old)m.floor=nw});p.drawings.forEach(d=>d.floors=d.floors.map(x=>x===old?nw:x))}else f.h=num(t.value,f.h);saveAll();return}
+});
+document.addEventListener('click',async e=>{
+  const el=e.target.closest('[data-act]');if(!el)return;const a=el.dataset.act,p=P();
+  switch(a){
+  case 'home':S.cur=null;go('projects');break;
+  case 'open':S.cur=el.dataset.id;S.tab='draw';S.dwg=null;S.floorFilter='';S.bldgFilter='';V.hi=null;go('project');break;
+  case 'sample':{const s=makeSample();S.projects.push(s);S.cur=s.id;S.tab='draw';S.dwg=null;saveAll();go('project');break}
+  case 'tab':S.tab=el.dataset.k;render();window.scrollTo(0,0);break;
+  case 'dwg':S.dwg=el.dataset.id;V.hi=null;render();break;
+  case 'dwgdel':{const id=el.dataset.id;if(el.dataset.sure!=='1'){el.dataset.sure='1';el.textContent='再按一次確認刪除';return}
+    p.drawings=p.drawings.filter(d=>d.id!==id);p.slabs=p.slabs.filter(s=>s.src!==id);p.members=p.members.filter(m=>m.src!==id);entDel(id);S.dwg=null;saveAll();render();toast('已刪除圖檔及其辨識資料');break}
+  case 'fit':if(V.ents){fitTo(V.ents.ext);draw()}break;
+  case 'togTxt':V.txt=!V.txt;draw();break;
+  case 'togOv':V.ov=!V.ov;draw();break;
+  case 'recog':{const d=p.drawings.find(x=>x.id===S.dwg);const ents=await entGet(d.id);if(!ents)return toast('找不到圖檔內容，請重新匯入');
+    if(!Object.values(d.roles).length){toast('請先在圖層表指定至少一個圖層的角色');return}
+    if(!d.floors.length){toast('請先勾選此圖適用的樓層');return}
+    d.slabT=p.slabT;d.beamH=p.beamH;const R=recognize(ents,d,p);applyRecog(p,d,R);saveAll();render();
+    toast(`辨識完成：版 ${R.slabs.length}、柱 ${R.cols.length}、梁段 ${R.beams.length}、牆段 ${R.walls.length}（套用 ${d.floors.length} 個樓層）`);break}
+  case 'levels':{const d=p.drawings.find(x=>x.id===S.dwg);const ents=await entGet(d.id);const lv=readLevels(ents);
+    if(!lv.length){openDlg('讀取樓層標高',`<p>在此圖找不到樓層標高文字。可辨識的寫法例如「2F +4.20」、「RF FL+12.60」，或樓層名與標高文字位於同一水平線。</p>`);return}
+    S._lv=lv;openDlg('讀取樓層標高',`<div class="stack"><table class="data"><thead><tr><th>圖面樓層</th><th class="r">標高 (m)</th><th class="r">層高 (m)</th><th>對應專案樓層</th></tr></thead><tbody>${lv.map((r,i)=>`<tr><td>${esc(r.name)}</td><td class="r num">${r.el.toFixed(2)}</td><td class="r num">${r.h==null?'—':r.h.toFixed(2)}</td><td><select class="lvMap" data-i="${i}"><option value="">不套用</option>${opts(p.floors.map(f=>f.name),normFloor(r.name,p.floors))}</select></td></tr>`).join('')}</tbody></table><div class="row"><button class="btn pri" data-act="applyLv">套用層高</button></div></div>`);break}
+  case 'applyLv':{let n=0;document.querySelectorAll('.lvMap').forEach(s=>{const r=S._lv[+s.dataset.i];if(s.value&&r.h!=null){const f=p.floors.find(f=>f.name===s.value);if(f){f.h=r.h;n++}}});saveAll();$('#dlg').close();toast(`已更新 ${n} 個樓層的層高`);render();break}
+  case 'addslab':{const f=S.floorFilter||p.floors[p.floors.length-1]?.name||'1';p.slabs.push({id:uid(),bldg:S.bldgFilter||p.bldgs[0],floor:f,code:'S1',no:nextNo(p),t:p.slabT,orig:'',seal:'',wall:'',col:'',src:'man'});saveAll();render();break}
+  case 'delslab':p.slabs=p.slabs.filter(s=>s.id!==el.dataset.id);saveAll();render();break;
+  case 'addmem':{const ty=el.dataset.k,f=S.floorFilter||p.floors[1]?.name||p.floors[0]?.name||'1';const m={id:uid(),bldg:S.bldgFilter||p.bldgs[0],floor:f,type:ty,code:{柱:'C1',梁:'B1',牆:'W1',其他:'樓梯'}[ty],n:1,src:'man'};
+    if(ty==='柱')Object.assign(m,{b:0.5,h:0.5,shape:'rect'});if(ty==='梁')Object.assign(m,{b:0.3,h:p.beamH||0.6,L:5});if(ty==='牆')Object.assign(m,{b:0.2,L:5});if(ty==='其他')Object.assign(m,{fx:'',cx:''});
+    p.members.push(m);saveAll();render();break}
+  case 'delmem':p.members=p.members.filter(m=>m.id!==el.dataset.id);saveAll();render();break;
+  case 'gslab':{const s=p.slabs.find(x=>x.id===el.dataset.id);if(!s)return;openDlg(`計算導引圖：${s.floor} 層 ${s.code} 版內編 ${s.no}`,`<div class="stack">${svgSlab(s)}<div class="legend"><span><i style="background:var(--wall)"></i>扣版牆接頭邊</span><span><i style="background:var(--seal)"></i>封模邊</span><span><i style="background:var(--col)"></i>扣柱頭</span><span>數字為邊長 (m)</span></div><div class="formula">${esc(slabFormula(s))}</div>${s.geo?`<div class="row"><button class="btn" data-act="locate" data-id="${s.id}">在圖面上定位</button></div>`:''}${s.edited?'<p class="muted small">此列算式曾手動修改，導引圖仍顯示圖面原始幾何。</p>':''}</div>`);break}
+  case 'gmem':{const m=p.members.find(x=>x.id===el.dataset.id);openDlg(`計算導引圖：${m.floor} 層 ${m.type} ${m.code||''}`,`<div class="stack">${svgMember(m,p)}<div class="formula">${esc(memFormula(m,p))}</div></div>`);break}
+  case 'locate':{const s=p.slabs.find(x=>x.id===el.dataset.id);if(!s||!s.geo)return;const d=p.drawings.find(x=>x.id===s.src);if(!d)return;const k=d.unit,bb=bbox(s.geo.pts.map(q=>[q[0]/k,q[1]/k])),pd=Math.max(bb[2]-bb[0],bb[3]-bb[1])*0.6;
+    const sameFloor=p.slabs.find(x=>x.src===d.id&&x.floor===(d.floors[0])&&x.code===s.code&&JSON.stringify(x.geo?.pts)===JSON.stringify(s.geo.pts));
+    V.hi={dwg:d.id,slab:sameFloor?sameFloor.id:s.id,bb:[bb[0]-pd,bb[1]-pd,bb[2]+pd,bb[3]+pd]};S.dwg=d.id;S.tab='draw';if($('#dlg').open)$('#dlg').close();render();window.scrollTo(0,0);break}
+  case 'dlgclose':$('#dlg').close();break;
+  case 'copyrep':{const b=S.repB&&p.bldgs.includes(S.repB)?S.repB:p.bldgs[0];copyText(repTSV(p,b).map(r=>r.join('\t')).join('\n'));break}
+  case 'csvrep':{const b=S.repB&&p.bldgs.includes(S.repB)?S.repB:p.bldgs[0];download(`${p.code}_模板報表_${b}.csv`,'﻿'+repTSV(p,b).map(r=>r.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(',')).join('\r\n'),'text/csv');break}
+  case 'copysum':{const {fl,F}=summary(p,S.sumB||'');const K=['版','梁','柱','牆','其他'];const t=(key,title)=>{const rows=[[title],['樓層',...K,'樓層合計']];const tot=K.map(()=>0);fl.forEach(f=>{const r=F[f][key];const v=K.map(k=>r[k]);v.forEach((x,i)=>tot[i]+=x);rows.push([f,...v.map(f2),f2(v.reduce((a,b)=>a+b,0))])});rows.push(['總計',...tot.map(f2),f2(tot.reduce((a,b)=>a+b,0))]);return rows};
+    copyText([...t('form','模板分層數量統計總表 (m²)'),[],...t('conc','混凝土分層數量統計總表 (m³)')].map(r=>r.join('\t')).join('\n'));break}
+  case 'print':window.print();break;
+  case 'fs':toggleFs();break;
+  case 'copyjson':copyText(JSON.stringify(p));break;
+  case 'dljson':{const x=JSON.parse(JSON.stringify(p));x._ents=[];for(const d of p.drawings){const en=await entGet(d.id);if(en)x._ents.push([d.id,en])}download(`${p.code}_專案備份.json`,JSON.stringify(x),'application/json');break}
+  case 'delproj':{$('#delConfirm').innerHTML=`<div class="note row">確定刪除「${esc(p.name)}」？此動作無法復原。<button class="btn danger" data-act="delprojY">確定刪除</button></div>`;break}
+  case 'delprojY':p.drawings.forEach(d=>entDel(d.id));S.projects=S.projects.filter(x=>x.id!==p.id);S.cur=null;saveAll();go('projects');toast('專案已刪除');break;
+  case 'addfloor':p.floors.push({name:'新樓層',h:3.4});saveAll();render();break;
+  case 'fup':{const i=+el.dataset.i;if(i>0){[p.floors[i-1],p.floors[i]]=[p.floors[i],p.floors[i-1]];saveAll();render()}break}
+  case 'fdel':{const i=+el.dataset.i,f=p.floors[i];if(p.slabs.some(s=>s.floor===f.name)||p.members.some(m=>m.floor===f.name)){toast('此樓層還有數量資料，請先刪除或改到其他樓層');return}p.floors.splice(i,1);saveAll();render();break}
+  }
+});
+function fsOn(){return !!(document.fullscreenElement||document.webkitFullscreenElement)}
+function goFs(){const el=document.documentElement,f=el.requestFullscreen||el.webkitRequestFullscreen;if(f)try{const r=f.call(el);if(r&&r.catch)r.catch(()=>{})}catch(e){}}
+function toggleFs(){if(fsOn()){const f=document.exitFullscreen||document.webkitExitFullscreen;if(f)try{const r=f.call(document);if(r&&r.catch)r.catch(()=>{})}catch(e){}}else goFs()}
+function syncFs(){}
+document.addEventListener('fullscreenchange',()=>{if(V.resize)V.resize()});
+document.addEventListener('pointerup',()=>{if(S.view&&!fsOn())goFs()},true);document.addEventListener('webkitfullscreenchange',syncFs);
+function copyText(s){
+  const fb=()=>{openDlg('複製內容',`<p class="muted small">請全選下方文字後複製：</p><textarea id="cpy" rows="12">${esc(s)}</textarea>`);setTimeout(()=>{const t=$('#cpy');t.focus();t.select()},50)};
+  try{navigator.clipboard.writeText(s).then(()=>toast('已複製，可直接貼到 Excel'),fb)}catch(e){fb()}
+}
+function download(name,data,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type}));a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500)}
+
+/* =========================================================
+   首頁：白點隨機閃爍
+   ========================================================= */
+(function splash(){
+  const sp=$('#splash'),cv=$('#dots'),g=cv.getContext('2d');
+  const reduce=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let dots=[],W=0,H=0,dpr=1,raf=0,alive=true;
+  function layout(){
+    const r=sp.getBoundingClientRect();W=r.width;H=r.height;dpr=window.devicePixelRatio||1;cv.width=W*dpr;cv.height=H*dpr;
+    const s=Math.max(56,Math.min(130,Math.min(W,H)/6.5)),ox=(W%s)/2+s/2-s/2,oy=(H%s)/2;
+    dots=[];for(let y=oy+s/2;y<H;y+=s)for(let x=(W-Math.floor(W/s)*s)/2+s/2;x<W;x+=s)dots.push({x,y,r:s*0.085,base:0.22+Math.random()*0.12,ph:Math.random()*6.28,sp:0.4+Math.random()*0.8,f:0,fd:0});
+  }
+  function frame(t){
+    if(!alive)return;g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,W,H);
+    const n=dots.length;
+    if(!reduce){for(let i=0;i<Math.max(1,n*0.006);i++){if(Math.random()<0.6){const d=dots[(Math.random()*n)|0];if(d.f<=0){d.f=0.001;d.fd=0.012+Math.random()*0.02}}}}
+    dots.forEach(d=>{
+      let a=d.base+(reduce?0:Math.sin(t/1000*d.sp+d.ph)*0.06);let glow=0;
+      if(d.f>0){d.f+=d.fd;const k=d.f<0.5?d.f*2:Math.max(0,2-d.f*2);glow=k;if(d.f>=1)d.f=0}
+      if(glow>0){const R=d.r*(3+glow*3);const gr=g.createRadialGradient(d.x,d.y,0,d.x,d.y,R);gr.addColorStop(0,`rgba(255,255,255,${0.55*glow})`);gr.addColorStop(1,'rgba(255,255,255,0)');g.fillStyle=gr;g.beginPath();g.arc(d.x,d.y,R,0,6.283);g.fill()}
+      g.fillStyle=`rgba(235,240,255,${Math.min(1,a+glow*0.75)})`;g.beginPath();g.arc(d.x,d.y,d.r*(1+glow*0.25),0,6.283);g.fill();
+    });
+    raf=requestAnimationFrame(frame);
+  }
+  layout();window.addEventListener('resize',layout);raf=requestAnimationFrame(frame);
+  const enter=()=>{if(sp.classList.contains('out'))return;goFs();syncFs();sp.classList.add('out');S.view='projects';render();setTimeout(()=>{alive=false;cancelAnimationFrame(raf);sp.hidden=true},800)};
+  sp.addEventListener('click',enter);sp.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();enter()}});
+  sp.focus();
+})();
+
+/* 啟動 */
+loadAll();
+idbOpen();
+</script>
