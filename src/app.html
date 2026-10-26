@@ -159,6 +159,13 @@ table.rep tr.click:hover td{background:#eef1ff}
 .plot-tbl td.f{font-family:var(--f-num);overflow-wrap:anywhere}.plot-tbl td.n{text-align:right;font-family:var(--f-num);white-space:nowrap}
 .plot-tbl tr.sub td{font-weight:700;background:var(--surface2)}
 #printArea{display:none}
+/* 產生 PDF 用的暫存版面（畫面外） */
+.pdfbox{position:fixed;left:-20000px;top:0;width:1500px;background:#fff;color:#000;padding:16px}
+.pdfbox .sheet{width:100%!important;max-width:none!important}
+.pdfbox .plot-page{display:flex;gap:20px;align-items:flex-start;padding:10px;background:#fff}
+.pdfbox .plot-page img{flex:0 0 46%;width:46%;height:auto}
+.pdfbox .plot-tbl{flex:1;font-size:11px;background:#fff;color:#000}
+.pdfbox .panel{margin-bottom:16px;background:#fff}
 @media print{
   @page{size:A3 landscape;margin:10mm}
   body.printing>*:not(#printArea){display:none!important}
@@ -1328,7 +1335,7 @@ function viewMem(p){
   <div class="row" style="justify-content:space-between">
     <div class="row"><label class="small muted" for="mfB">棟別</label><select id="mfB" data-filter="bldgFilter"><option value="">全部</option>${opts(p.bldgs,bf)}</select>
     <label class="small muted" for="mfF">樓層</label><select id="mfF" data-filter="floorFilter"><option value="">全部</option>${opts(fo,ff)}</select></div>
-    <div class="row"><button class="btn" data-act="addmem" data-k="柱">＋柱</button><button class="btn" data-act="addmem" data-k="梁">＋梁</button><button class="btn" data-act="addmem" data-k="牆">＋牆</button><button class="btn" data-act="addmem" data-k="其他">＋其他（樓梯、基礎…）</button></div></div>
+    <div class="row"><button class="btn" data-act="addmem" data-k="柱">＋柱</button><button class="btn" data-act="addmem" data-k="梁">＋梁</button><button class="btn" data-act="addmem" data-k="牆">＋牆</button><button class="btn" data-act="addmem" data-k="其他">＋其他（自行輸入算式）</button></div></div>
   <p class="muted small" style="margin:0">尺寸單位 m。柱、牆高 H 留空時採該樓層層高；版厚 ts 留空時採專案預設。梁長 L 取柱面間淨跨，「外側」打勾表示邊梁外側模板做到全梁深。</p>
   <div class="scroll"><table class="data cardify"><thead><tr><th>棟別</th><th>樓層</th><th>類型</th><th>編號</th><th>寬（圓柱直徑）</th><th>深</th><th>長度</th><th>層高</th><th>版厚</th><th>數量</th><th>邊梁外側／圓柱</th><th>扣模板 m²</th><th>開口 m²</th><th>模板式（其他）</th><th>混凝土式（其他）</th><th class="r">模板 m²</th><th class="r">混凝土 m³</th><th>來源</th><th></th></tr></thead>
   <tbody>${rows.map(m=>{const c=memCalc(m,p);const o=m.type==='其他';return `<tr data-id="${m.id}" class="${c.bad?'bad':''}">
@@ -1605,13 +1612,36 @@ function plotDXF(p,b){
 }
 function plotPrint(p){
   const b=S.plotB&&p.bldgs.includes(S.plotB)?S.plotB:p.bldgs[0];
-  const box=document.createElement('div');box.id='printArea';
-  box.innerHTML=plotFloors(p,b).map(f=>`<section class="plot-page">${plotSVG(p,f,b)}${plotTable(p,f,b)}</section>`).join('');
+  printOut(plotFloors(p,b).map(f=>`<section class="plot-page">${plotSVG(p,f,b)}${plotTable(p,f,b)}</section>`).join(''),`${p.name||'專案'}_${b}棟_計算導引`);
+}
+/* 列印：一般瀏覽器用系統列印；iPhone 加到主畫面的 App 模式不支援 window.print()，改成產生 PDF 再用分享選單列印或存檔 */
+const iosApp=()=>navigator.standalone===true;
+function printOut(html,name){
+  if(iosApp())return makePdf(html,name);
+  const box=document.createElement('div');box.id='printArea';box.innerHTML=html;box.querySelectorAll('[style*=zoom]').forEach(e=>e.style.zoom='');
   document.body.appendChild(box);document.body.classList.add('printing');
   const done=()=>{document.body.classList.remove('printing');box.remove();removeEventListener('afterprint',done)};addEventListener('afterprint',done);
-  setTimeout(()=>{window.print();setTimeout(()=>{if(document.body.classList.contains('printing')&&!matchMedia('print').matches){}},0)},50);
+  setTimeout(()=>window.print(),50);
 }
-function plotPNG(p){
+const loadJs=u=>new Promise((ok,no)=>{if(document.querySelector(`script[src="${u}"]`))return ok();const sc=document.createElement('script');sc.src=u;sc.onload=ok;sc.onerror=()=>no(new Error('載入失敗'));document.head.appendChild(sc)});
+async function makePdf(html,name){
+  toast('正在產生 PDF…');
+  try{
+    await loadJs('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+    await loadJs('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+    const box=document.createElement('div');box.className='pdfbox';box.innerHTML=html;box.querySelectorAll('[style*=zoom]').forEach(e=>e.style.zoom='');document.body.appendChild(box);
+    // SVG 先轉成圖片，html2canvas 才畫得準
+    await Promise.all([...box.querySelectorAll('svg')].map(sv=>new Promise(ok=>{const vb=sv.viewBox.baseVal;if(vb&&vb.width){sv.setAttribute('width',1400);sv.setAttribute('height',Math.round(1400*vb.height/vb.width))}const im=new Image();im.onload=ok;im.onerror=ok;im.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(sv.outerHTML);sv.replaceWith(im)})));
+    const secs=box.querySelectorAll('.plot-page').length?[...box.querySelectorAll('.plot-page')]:[box];
+    const pdf=new jspdf.jsPDF({orientation:'landscape',unit:'mm',format:'a4'}),PW=297,PH=210,M=8,W=PW-2*M,H=PH-2*M;let first=true;
+    for(const el of secs){const cv=await html2canvas(el,{scale:2,backgroundColor:'#fff'});const ph=Math.floor(H*cv.width/W);
+      for(let y=0;y<cv.height;y+=ph){const h=Math.min(ph,cv.height-y),c=document.createElement('canvas');c.width=cv.width;c.height=h;c.getContext('2d').drawImage(cv,0,y,cv.width,h,0,0,cv.width,h);
+        if(!first)pdf.addPage();first=false;pdf.addImage(c.toDataURL('image/jpeg',0.92),'JPEG',M,M,W,h*W/cv.width)}}
+    box.remove();
+    const file=new File([pdf.output('blob')],name.replace(/[\\/:*?"<>|]/g,'_')+'.pdf',{type:'application/pdf'});S._pdf=file;
+    openDlg('PDF 已產生',`<p>${esc(file.name)}（${Math.ceil(file.size/1024)} KB）</p><p class="muted small">按「分享／列印」後，在分享選單選「列印」或「儲存到檔案」。</p><div class="row"><button class="btn primary" data-act="pdfshare">分享／列印</button><button class="btn" data-act="pdfopen">開啟 PDF</button></div>`);
+  }catch(e){toast('PDF 產生失敗：'+(e.message||e))}
+}function plotPNG(p){
   const b=S.plotB&&p.bldgs.includes(S.plotB)?S.plotB:p.bldgs[0],fl=plotFloors(p,b),f=S.plotF&&fl.includes(S.plotF)?S.plotF:fl[0];
   const svg=plotSVG(p,f,b,{px:120});const img=new Image();const url=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'}));
   img.onload=()=>{const W=Math.min(img.width,8000),H=Math.round(img.height*W/img.width),c=document.createElement('canvas');c.width=W;c.height=H;const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,W,H);g.drawImage(img,0,0,W,H);URL.revokeObjectURL(url);
@@ -1702,7 +1732,7 @@ document.addEventListener('click',async e=>{
   case 'togOv':V.ov=!V.ov;draw();break;
   case 'addslab':{const f=S.floorFilter||p.floors[p.floors.length-1]?.name||'1';p.slabs.push({id:uid(),bldg:S.bldgFilter||p.bldgs[0],floor:f,code:'S1',no:nextNo(p),t:p.slabT,orig:'',seal:'',wall:'',col:'',src:'man'});saveAll();render();break}
   case 'delslab':p.slabs=p.slabs.filter(s=>s.id!==el.dataset.id);saveAll();render();break;
-  case 'addmem':{const ty=el.dataset.k,f=S.floorFilter||p.floors[1]?.name||p.floors[0]?.name||'1';const m={id:uid(),bldg:S.bldgFilter||p.bldgs[0],floor:f,type:ty,code:{柱:'C1',梁:'B1',牆:'W1',其他:'樓梯'}[ty],n:1,src:'man'};
+  case 'addmem':{const ty=el.dataset.k,f=S.floorFilter||p.floors[1]?.name||p.floors[0]?.name||'1';const m={id:uid(),bldg:S.bldgFilter||p.bldgs[0],floor:f,type:ty,code:{柱:'C1',梁:'B1',牆:'W1',其他:'其他'}[ty],n:1,src:'man'};
     if(ty==='柱')Object.assign(m,{b:0.5,h:0.5,shape:'rect'});if(ty==='梁')Object.assign(m,{b:0.3,h:p.beamH||0.6,L:5});if(ty==='牆')Object.assign(m,{b:0.2,L:5});if(ty==='其他')Object.assign(m,{fx:'',cx:''});
     p.members.push(m);saveAll();render();break}
   case 'delmem':p.members=p.members.filter(m=>m.id!==el.dataset.id);saveAll();render();break;
@@ -1712,11 +1742,13 @@ document.addEventListener('click',async e=>{
     const sameFloor=p.slabs.find(x=>x.src===d.id&&x.floor===(d.floors[0])&&x.code===s.code&&JSON.stringify(x.geo?.pts)===JSON.stringify(s.geo.pts));
     V.hi={dwg:d.id,slab:sameFloor?sameFloor.id:s.id,bb:[bb[0]-pd,bb[1]-pd,bb[2]+pd,bb[3]+pd]};S.dwg=d.id;S.tab='draw';if($('#dlg').open)$('#dlg').close();render();window.scrollTo(0,0);break}
   case 'dlgclose':$('#dlg').close();break;
+  case 'pdfshare':{const f=S._pdf;if(!f)break;if(navigator.canShare&&navigator.canShare({files:[f]}))navigator.share({files:[f],title:f.name}).catch(()=>{});else{const a=document.createElement('a');a.href=URL.createObjectURL(f);a.download=f.name;document.body.appendChild(a);a.click();setTimeout(()=>a.remove(),1000)}break}
+  case 'pdfopen':{const f=S._pdf;if(f)window.open(URL.createObjectURL(f),'_blank');break}
   case 'copyrep':{const b=S.repB&&p.bldgs.includes(S.repB)?S.repB:p.bldgs[0];copyText(repTSV(p,b).map(r=>r.join('\t')).join('\n'));break}
   case 'csvrep':{const b=S.repB&&p.bldgs.includes(S.repB)?S.repB:p.bldgs[0];download(`${p.code}_模板報表_${b}.csv`,'﻿'+repTSV(p,b).map(r=>r.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(',')).join('\r\n'),'text/csv');break}
   case 'copysum':{const {fl,F}=summary(p,S.sumB||'');const K=['版','梁','柱','牆','其他'];const LS=num(p.loss,1.1);const t=(key,title)=>{const ls=key==='form'&&LS!==1;const rows=[[title],['樓層','範圍',...K,'樓層合計',...(ls?['含損耗 ×'+LS]:[])]];const tot=K.map(()=>0);fl.forEach(f=>{const r=F[f][key];const v=K.map(k=>r[k]);v.forEach((x,i)=>tot[i]+=x);const sm=v.reduce((a,b)=>a+b,0);rows.push([f,flRange(p,f),...v.map(f2),f2(sm),...(ls?[f2(sm*LS)]:[])])});const all=tot.reduce((a,b)=>a+b,0);rows.push(['總計','',...tot.map(f2),f2(all),...(ls?[f2(all*LS)]:[])]);return rows};
     copyText([...t('form','模板分層數量統計總表 (m²)'),[],...t('conc','混凝土分層數量統計總表 (m³)')].map(r=>r.join('\t')).join('\n'));break}
-  case 'print':window.print();break;
+  case 'print':{const sh=$('#sheet');const html=sh?sh.outerHTML:[...document.querySelectorAll('#main .panel')].filter(x=>x.querySelector('table')).map(x=>x.outerHTML).join('');printOut(html,`${p.name||'專案'}_${S.tab==='rep'?'模板報表':'分層統計'}`);break}
   case 'plotz':{const k=el.dataset.k;if(k==='0')plotPZ.fit();else plotPZ.zoom(k==='1'?1.5:1/1.5);break}
   case 'plotprint':plotPrint(p);break;
   case 'plotpng':plotPNG(p);break;
