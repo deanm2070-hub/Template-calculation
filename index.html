@@ -1515,7 +1515,15 @@ function xlsxBlob(sheets){
   return new Blob([...parts,...cd,z],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
 }
 // 手機主畫面 App 用分享選單存檔；網頁直接下載
-function saveFile(file){if(iosApp()){S._pdf=file;openDlg('檔案已產生',`<p>${esc(file.name)}（${Math.ceil(file.size/1024)} KB）</p><p class="muted small">按「分享／存檔」後選「儲存到檔案」或用 Excel、Numbers 開啟。</p><div class="row"><button class="btn primary" data-act="pdfshare">分享／存檔</button></div>`)}else{const a=document.createElement('a');a.href=URL.createObjectURL(file);a.download=file.name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1000)}}
+async function saveFile(file){
+  // 電腦（Chrome/Edge）：存檔視窗可選資料夾、桌面、雲端硬碟
+  if(window.showSaveFilePicker){try{const ext=(file.name.match(/\.\w+$/)||['.xlsx'])[0];const h=await showSaveFilePicker({suggestedName:file.name,types:[{description:ext.slice(1).toUpperCase(),accept:{[file.type||'application/octet-stream']:[ext]}}]});const w=await h.createWritable();await w.write(file);await w.close();toast('已儲存 '+h.name);return}catch(e){if(e&&e.name==='AbortError')return}}
+  // 手機、平板主畫面 App：分享選單（儲存到檔案、iCloud），也可直接下載
+  if(iosApp()&&touchDev()){S._pdf=file;openDlg('檔案已產生',`<p>${esc(file.name)}（${Math.ceil(file.size/1024)} KB）</p><p class="muted small">「分享／存檔」可選「儲存到檔案」（iCloud 雲碟或本機）或用 Excel、Numbers 開啟；「下載」存到下載項目。</p><div class="row"><button class="btn primary" data-act="pdfshare">分享／存檔</button><button class="btn" data-act="fdl">下載</button></div>`);return}
+  // 其他（Mac Safari、主畫面 App 在電腦上）：直接下載
+  dlFile(file);toast('已下載到「下載項目」資料夾')}
+function dlFile(file){const a=document.createElement('a');a.href=URL.createObjectURL(file);a.download=file.name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500)}
+const touchDev=()=>navigator.maxTouchPoints>1||/iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 function repXlsx(p,b){const nm=`${p.name||p.code||'專案'}_${b}棟_模板報表.xlsx`.replace(/[\\/:*?"<>|]/g,'_');saveFile(new File([xlsxBlob(repBook(p,b))],nm,{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}))}
 /* ---------- 分層統計 ---------- */
 function viewSum(p){
@@ -1782,7 +1790,7 @@ async function makePdf(html,name){
         if(!first)pdf.addPage();first=false;pdf.addImage(c.toDataURL('image/jpeg',0.92),'JPEG',M,M,W,h*W/cv.width)}}
     box.remove();
     const file=new File([pdf.output('blob')],name.replace(/[\\/:*?"<>|]/g,'_')+'.pdf',{type:'application/pdf'});S._pdf=file;
-    openDlg('PDF 已產生',`<p>${esc(file.name)}（${Math.ceil(file.size/1024)} KB）</p><p class="muted small">按「分享／列印」後，在分享選單選「列印」或「儲存到檔案」。</p><div class="row"><button class="btn primary" data-act="pdfshare">分享／列印</button><button class="btn" data-act="pdfopen">開啟 PDF</button></div>`);
+    openDlg('PDF 已產生',`<p>${esc(file.name)}（${Math.ceil(file.size/1024)} KB）</p><p class="muted small">按「分享／列印」後，在分享選單選「列印」或「儲存到檔案」。</p><div class="row"><button class="btn primary" data-act="pdfshare">分享／列印</button><button class="btn" data-act="pdfopen">開啟 PDF</button><button class="btn" data-act="fdl">下載</button></div>`);
   }catch(e){toast('PDF 產生失敗：'+(e.message||e))}
 }function plotPNG(p){
   const b=S.plotB&&p.bldgs.includes(S.plotB)?S.plotB:p.bldgs[0],fl=plotFloors(p,b),f=S.plotF&&fl.includes(S.plotF)?S.plotF:fl[0];
@@ -1887,6 +1895,7 @@ document.addEventListener('click',async e=>{
     V.hi={dwg:d.id,slab:sameFloor?sameFloor.id:s.id,bb:[bb[0]-pd,bb[1]-pd,bb[2]+pd,bb[3]+pd]};S.dwg=d.id;S.tab='draw';if($('#dlg').open)$('#dlg').close();render();window.scrollTo(0,0);break}
   case 'dlgclose':$('#dlg').close();break;
   case 'pdfshare':{const f=S._pdf;if(!f)break;if(navigator.canShare&&navigator.canShare({files:[f]}))navigator.share({files:[f],title:f.name}).catch(()=>{});else{const a=document.createElement('a');a.href=URL.createObjectURL(f);a.download=f.name;document.body.appendChild(a);a.click();setTimeout(()=>a.remove(),1000)}break}
+  case 'fdl':{const f=S._pdf;if(f)dlFile(f);break}
   case 'pdfopen':{const f=S._pdf;if(f)window.open(URL.createObjectURL(f),'_blank');break}
   case 'copyrep':{const b=S.repB&&p.bldgs.includes(S.repB)?S.repB:p.bldgs[0];copyText(repTSV(p,b).map(r=>r.join('\t')).join('\n'));break}
   case 'csvrep':{const b=S.repB&&p.bldgs.includes(S.repB)?S.repB:p.bldgs[0];download(`${p.code}_模板報表_${b}.csv`,'﻿'+repTSV(p,b).map(r=>r.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(',')).join('\r\n'),'text/csv');break}
@@ -1955,7 +1964,7 @@ function download(name,data,type){const a=document.createElement('a');a.href=URL
 })();
 
 /* 新版本提示：網站版才有，按「更新」才重新載入 */
-const BUILD='20261026103117';
+const BUILD='20261026103308';
 function checkUpdate(){
   if(!BUILD||BUILD.startsWith('__')||!/^https?:/.test(location.protocol))return;
   fetch('version.json?t='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{
