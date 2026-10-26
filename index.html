@@ -278,7 +278,9 @@ const KEY='zhuben.projects.v1';
 const S={projects:[],cur:null,tab:'draw',dwg:null,floorFilter:'',bldgFilter:'',sumB:'',repB:''};
 function loadAll(){try{const j=localStorage.getItem(KEY);if(j)S.projects=JSON.parse(j)||[]}catch(e){}
   // 舊資料的「梁」改成「樑」
-  S.projects.forEach(migrateBeam)}
+  S.projects.forEach(p=>{migrateBeam(p);clearManual(p)});saveAll()}
+// 使用者要求（一次性）：有匯入圖檔的專案，刪除先前手動新增的版、柱、樑、牆、其他列，不列入統計
+function clearManual(p){if(p.manCleared)return;p.manCleared=true;if(!(p.drawings||[]).length)return;p.members=(p.members||[]).filter(m=>m.src!=='man');p.slabs=(p.slabs||[]).filter(s=>s.src!=='man')}
 function migrateBeam(p){(p.members||[]).forEach(m=>{if(m.type==='梁')m.type='樑'});(p.drawings||[]).forEach(d=>[d.hold,d.wraw].forEach(a=>(a||[]).forEach(m=>{if(m.type==='梁')m.type='樑'})))}
 function saveAll(){try{localStorage.setItem(KEY,JSON.stringify(S.projects))}catch(e){toast('瀏覽器儲存空間不足或已停用，資料僅保留到關閉頁面')}}
 const entCache=new Map();
@@ -1839,12 +1841,12 @@ async function importFiles(files){
 document.addEventListener('submit',e=>{
   if(e.target.id==='fNew'){e.preventDefault();
     const p=newProject({code:'',name:$('#nName').value.trim(),bldgs:['A'],floors:['F','1','2','3','4','R1'].map(n=>({name:n,h:3.4})),slabT:0.15});
-    S.projects.push(p);S.cur=p.id;S.tab='draw';S.dwg=null;saveAll();go('project');toast('專案已建立，下一步匯入結構圖 DWG 或 DXF')}
+    p.manCleared=true;S.projects.push(p);S.cur=p.id;S.tab='draw';S.dwg=null;saveAll();go('project');toast('專案已建立，下一步匯入結構圖 DWG 或 DXF')}
 });
 document.addEventListener('change',async e=>{
   const t=e.target,p=P();
   if(t.id==='impFile'){if(t.files.length)importFiles([...t.files]);return}
-  if(t.id==='impJson'){const f=t.files[0];if(!f)return;try{const o=JSON.parse(await f.text());const arr=Array.isArray(o)?o:[o];arr.forEach(x=>{if(x&&x.id&&x.floors){x.id=uid();(x._ents||[]).forEach(([id,en])=>entPut(id,en));delete x._ents;migrateBeam(x);S.projects.push(x)}});saveAll();render();toast('已匯入專案')}catch(err){toast('備份檔格式不正確')}return}
+  if(t.id==='impJson'){const f=t.files[0];if(!f)return;try{const o=JSON.parse(await f.text());const arr=Array.isArray(o)?o:[o];arr.forEach(x=>{if(x&&x.id&&x.floors){x.id=uid();(x._ents||[]).forEach(([id,en])=>entPut(id,en));delete x._ents;migrateBeam(x);x.manCleared=true;S.projects.push(x)}});saveAll();render();toast('已匯入專案')}catch(err){toast('備份檔格式不正確')}return}
   if(t.dataset.filter){S[t.dataset.filter]=t.value;render();return}
   if(!p)return;
   if(t.dataset.layer!==undefined){const d=p.drawings.find(x=>x.id===S.dwg);if(t.value)d.roles[t.dataset.layer]=t.value;else delete d.roles[t.dataset.layer];
@@ -1864,7 +1866,7 @@ document.addEventListener('click',async e=>{
   case 'home':if(history.state?.v==='project')history.back();else{S.cur=null;go('projects')}break;
   case 'recalc':recalcAll(p);break;
   case 'open':S.cur=el.dataset.id;S.tab='draw';S.dwg=null;S.floorFilter='';S.bldgFilter='';V.hi=null;go('project');break;
-  case 'sample':{const s=makeSample();S.projects.push(s);S.cur=s.id;S.tab='draw';S.dwg=null;saveAll();go('project');break}
+  case 'sample':{const s=makeSample();s.manCleared=true;S.projects.push(s);S.cur=s.id;S.tab='draw';S.dwg=null;saveAll();go('project');break}
   case 'tab':S.tab=el.dataset.k;render();window.scrollTo(0,0);break;
   case 'dwg':S.dwg=el.dataset.id;V.hi=null;render();break;
   case 'dwgdel':{const id=el.dataset.id;if(el.dataset.sure!=='1'){el.dataset.sure='1';el.textContent='再按一次確認刪除';return}
@@ -1953,7 +1955,7 @@ function download(name,data,type){const a=document.createElement('a');a.href=URL
 })();
 
 /* 新版本提示：網站版才有，按「更新」才重新載入 */
-const BUILD='20261026080656';
+const BUILD='20261026083209';
 function checkUpdate(){
   if(!BUILD||BUILD.startsWith('__')||!/^https?:/.test(location.protocol))return;
   fetch('version.json?t='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{
