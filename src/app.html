@@ -1398,7 +1398,7 @@ function viewMem(p){
   <div class="scroll"><table class="data cardify"><thead><tr><th>棟別</th><th>樓層</th><th>類型</th><th>編號</th><th>寬（圓柱直徑）</th><th>深</th><th>長度</th><th>層高</th><th>版厚</th><th>數量</th><th>邊樑外側／圓柱</th><th>扣模板 m²</th><th>開口 m²</th><th>模板式（其他）</th><th>混凝土式（其他）</th><th class="r">模板 m²</th><th class="r">混凝土 m³</th><th>來源</th><th></th></tr></thead>
   <tbody>${rows.map(m=>{const c=memCalc(m,p);const o=m.type==='其他';return `<tr data-id="${m.id}" class="${c.bad?'bad':''}">
     <td><select data-mk="bldg">${opts(p.bldgs,m.bldg)}</select></td><td><select data-mk="floor">${opts(p.floors.map(f=>f.name),m.floor)}</select></td>
-    <td>${esc(m.type)}${m.pos?`<span class="pill man" style="margin-left:4px">${esc(m.pos)}</span>`:''}${pid(m)?`<div class="small" style="color:#dd6b20;font-weight:700;margin-top:4px">圖號 ${esc(pid(m))}</div>`:''}</td><td><input class="w4" type="text" data-mk="code" value="${esc(m.code)}"></td>
+    <td>${esc(m.type)}${m.pos?`<span class="pill man" style="margin-left:4px">${esc(m.pos)}</span>`:''}${pid(m)?`<div class="small" style="color:#dd6b20;font-weight:700;margin-top:4px">圖號 ${esc(pid(m))}</div>`:['柱','樑','牆'].includes(m.type)&&!m.kind&&!(m.geo&&m.geo.length)?`<div class="small muted" style="margin-top:4px">手動列，圖上無位置</div>`:''}</td><td><input class="w4" type="text" data-mk="code" value="${esc(m.code)}"></td>
     <td>${o?'':inp(m,'b')}</td><td>${m.type==='柱'||m.type==='樑'||m.kind==='stair'||m.kind==='drop'?inp(m,'h'):''}</td><td>${m.type==='樑'||m.type==='牆'?inp(m,'L','w6'):''}</td>
     <td>${m.kind==='stair'?`${inp(m,'k','w4','1')} 階`:m.type==='柱'||m.type==='牆'?`<input class="w4 num" type="number" step="0.01" data-mk="H" value="${esc(m.H??'')}" placeholder="${fm(floorH(p,m.floor))}">`:''}</td>
     <td>${o?'':`<input class="w4 num" type="number" step="0.01" data-mk="ts" value="${esc(m.ts??'')}" placeholder="${fm(p.slabT)}">`}</td>
@@ -1636,9 +1636,9 @@ function plotData(p,f,b){
   const ord=(a,b)=>{const pa=a.p,pb=b.p;if(!pa||!pb)return (pa?-1:0)-(pb?-1:0);const dy=Math.round(pb[1])-Math.round(pa[1]);return dy||pa[0]-pb[0]};
   const ids=new Map();const num_=(arr,pre)=>arr.sort(ord).forEach((x,i)=>ids.set(x.o,pre+(i+1)));
   num_(sl.map(o=>({o,p:o.geo?centroid(o.geo.pts):null})),'版');
-  // 柱、樑、牆每一支各自編號（同一列數量 n 支就有 n 個號碼），表上該列列出全部號碼
+  // 柱、樑、牆每一支各自編號（同一列數量 n 支就有 n 個號碼），表上該列列出全部號碼；手動新增、圖上沒有位置的列不給圖號
   const inst=new Map();
-  [['柱',m=>m.type==='柱'],['樑',m=>m.type==='樑'],['牆',m=>m.type==='牆'&&m.kind!=='stair']].forEach(([pre,fn])=>{const arr=[];ms.filter(fn).forEach(o=>{const g=o.geo&&o.geo.length?o.geo:[null];g.forEach((q,i)=>arr.push({o,i,p:pos(q)}))});
+  [['柱',m=>m.type==='柱'],['樑',m=>m.type==='樑'],['牆',m=>m.type==='牆'&&m.kind!=='stair']].forEach(([pre,fn])=>{const arr=[];ms.filter(fn).forEach(o=>{if(!(o.geo&&o.geo.length))return;o.geo.forEach((q,i)=>arr.push({o,i,p:pos(q)}))});
     arr.sort(ord).forEach((x,k)=>{const id=pre+(k+1);inst.set(x.o.id+'|'+x.i,id);if(!ids.has(x.o))ids.set(x.o,[]);ids.get(x.o).push(id)})});
   ms.forEach(m=>{const a=ids.get(m);if(Array.isArray(a))ids.set(m,a.sort((u,v)=>+u.replace(/\D/g,'')- +v.replace(/\D/g,'')).join('、'))});
   [['梯',m=>m.kind==='stair'],['項',m=>m.type==='其他']].forEach(([pre,fn])=>num_(ms.filter(fn).map(o=>({o,p:pos(o.geo&&o.geo.length?o.geo[0]:null)})),pre));
