@@ -164,20 +164,24 @@ table.rep tr.click:hover td{background:#eef1ff}
 /* 產生 PDF 用的暫存版面（畫面外） */
 .pdfbox{position:fixed;left:-20000px;top:0;width:1500px;background:#fff;color:#000;padding:16px}
 .pdfbox .sheet{width:100%!important;max-width:none!important}
-.pdfbox .plot-page{display:flex;gap:20px;align-items:flex-start;padding:10px;background:#fff}
-.pdfbox .plot-page img{flex:0 0 46%;width:46%;height:auto}
-.pdfbox .plot-tbl{flex:1;font-size:11px;background:#fff;color:#000}
+.pdfbox.pdf-p{width:max-content;min-width:900px}.pdfbox .rep-sec{background:#fff;padding:8px 0}
+.pdfbox .plot-page{padding:10px;background:#fff;text-align:center}
+.pdfbox .plot-page img{max-width:100%;height:auto}
+.pdfbox .plot-tblp{padding:10px;background:#fff}
+.pdfbox .plot-tbl{width:100%;font-size:12px;background:#fff;color:#000}
 .pdfbox .panel{margin-bottom:16px;background:#fff}
 @media print{
-  @page{size:A3 landscape;margin:10mm}
   body.printing>*:not(#printArea){display:none!important}
   html,body.printing{height:auto!important;overflow:visible!important}
   body.printing{padding:0!important;background:#fff!important}
   body.printing #printArea{display:block}
-  .plot-page{page-break-after:always;break-after:page;display:flex;gap:6mm;align-items:flex-start}
-  .plot-page svg{flex:0 0 46%;width:46%;height:auto;max-height:270mm}
-  .plot-page .plot-tbl{flex:1;color:#000;background:#fff;font-size:7.5pt}
-  .plot-page .plot-tbl tr{break-inside:avoid}
+  /* 出圖：每層一頁整張圖（A4 橫式），算式表接在下一頁 */
+  .plot-page{page-break-after:always;break-after:page;height:192mm;display:flex;align-items:center;justify-content:center}
+  .plot-page svg{width:100%;height:100%}
+  .plot-tblp{page-break-after:always;break-after:page}
+  .rep-sec tr{break-inside:avoid}
+  .plot-tblp .plot-tbl{width:100%;color:#000;background:#fff;font-size:8pt}
+  .plot-tblp .plot-tbl tr{break-inside:avoid}
 }
 .formula{font-family:var(--f-num);font-size:12.5px;background:var(--surface2);padding:8px 10px;border-radius:6px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere}
 svg .g-ink{stroke:var(--ink);fill:none}
@@ -1506,7 +1510,7 @@ function xlsxBlob(sheets){
   const col=i=>{let s='';i++;while(i){const m=(i-1)%26;s=String.fromCharCode(65+m)+s;i=(i-m-1)/26}return s};
   const bold=r=>/^(樓層|合計|總計|模板分層|混凝土分層)/.test(String(r[0]))||/層小計$/.test(String(r[1]||''));
   const sheetXml=sh=>{const w=[];sh.rows.forEach(r=>r.forEach((v,i)=>{const l=[...String(v)].reduce((a,ch)=>a+(ch.charCodeAt(0)>255?2:1),0);w[i]=Math.max(w[i]||8,Math.min(60,l+2))}));
-    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"/></sheetViews><cols>${w.map((x,i)=>`<col min="${i+1}" max="${i+1}" width="${x}" customWidth="1"/>`).join('')}</cols><sheetData>${sh.rows.map((r,ri)=>{const st=bold(r)?' s="1"':'';return `<row r="${ri+1}">${r.map((v,ci)=>{const ref=col(ci)+(ri+1);if(v===''||v==null)return '';return typeof v==='number'&&isFinite(v)?`<c r="${ref}"${st}><v>${v}</v></c>`:`<c r="${ref}" t="inlineStr"${st}><is><t xml:space="preserve">${X(v)}</t></is></c>`}).join('')}</row>`}).join('')}</sheetData></worksheet>`};
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><sheetViews><sheetView workbookViewId="0"/></sheetViews><cols>${w.map((x,i)=>`<col min="${i+1}" max="${i+1}" width="${x}" customWidth="1"/>`).join('')}</cols><sheetData>${sh.rows.map((r,ri)=>{const st=bold(r)?' s="1"':'';return `<row r="${ri+1}">${r.map((v,ci)=>{const ref=col(ci)+(ri+1);if(v===''||v==null)return '';return typeof v==='number'&&isFinite(v)?`<c r="${ref}"${st}><v>${v}</v></c>`:`<c r="${ref}" t="inlineStr"${st}><is><t xml:space="preserve">${X(v)}</t></is></c>`}).join('')}</row>`}).join('')}</sheetData><printOptions horizontalCentered="1"/><pageMargins left="0.3" right="0.3" top="0.4" bottom="0.4" header="0.2" footer="0.2"/><pageSetup paperSize="9" orientation="portrait" fitToWidth="1" fitToHeight="0"/></worksheet>`};
   const files=[['[Content_Types].xml',`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${sheets.map((_,i)=>`<Override PartName="/xl/worksheets/sheet${i+1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>`],
     ['_rels/.rels',`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
     ['xl/workbook.xml',`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheets.map((sh,i)=>`<sheet name="${X(sh.name)}" sheetId="${i+1}" r:id="rId${i+1}"/>`).join('')}</sheets></workbook>`],
@@ -1772,31 +1776,41 @@ function plotDXF(p,b){
 }
 function plotPrint(p){
   const b=S.plotB&&p.bldgs.includes(S.plotB)?S.plotB:p.bldgs[0];
-  printOut(plotFloors(p,b).map(f=>`<section class="plot-page">${plotSVG(p,f,b)}${plotTable(p,f,b)}</section>`).join(''),`${p.name||'專案'}_${b}棟_計算導引`);
+  printOut(plotFloors(p,b).map(f=>`<section class="plot-page">${plotSVG(p,f,b)}</section><section class="plot-tblp">${plotTable(p,f,b)}</section>`).join(''),`${p.name||'專案'}_${b}棟_計算導引`,'landscape');
 }
 /* 列印：一般瀏覽器用系統列印；iPhone 加到主畫面的 App 模式不支援 window.print()，改成產生 PDF 再用分享選單列印或存檔 */
 const iosApp=()=>navigator.standalone===true;
-function printOut(html,name){
-  if(iosApp())return makePdf(html,name);
+// 報表、統計：A4 直式；出圖：A4 橫式。內容縮放到整頁寬
+function printOut(html,name,orient='portrait'){
+  if(iosApp())return makePdf(html,name,orient);
   const box=document.createElement('div');box.id='printArea';box.innerHTML=html;box.querySelectorAll('[style*=zoom]').forEach(e=>e.style.zoom='');
-  document.body.appendChild(box);document.body.classList.add('printing');
-  const done=()=>{document.body.classList.remove('printing');box.remove();removeEventListener('afterprint',done)};addEventListener('afterprint',done);
+  document.body.appendChild(box);
+  const pg=document.createElement('style');pg.textContent=`@page{size:A4 ${orient};margin:8mm}`;document.head.appendChild(pg);
+  if(orient==='portrait'){box.style.cssText='display:block;position:absolute;left:-99999px;top:0;width:max-content';const w=box.scrollWidth;box.style.cssText='';const avail=194*96/25.4;if(w>avail)box.style.zoom=String(avail/w)}
+  document.body.classList.add('printing');
+  const done=()=>{document.body.classList.remove('printing');box.remove();pg.remove();removeEventListener('afterprint',done)};addEventListener('afterprint',done);
   setTimeout(()=>window.print(),50);
 }
 const loadJs=u=>new Promise((ok,no)=>{if(document.querySelector(`script[src="${u}"]`))return ok();const sc=document.createElement('script');sc.src=u;sc.onload=ok;sc.onerror=()=>no(new Error('載入失敗'));document.head.appendChild(sc)});
-async function makePdf(html,name){
+async function makePdf(html,name,orient='portrait'){
   toast('正在產生 PDF…');
   try{
     await loadJs('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
     await loadJs('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
-    const box=document.createElement('div');box.className='pdfbox';box.innerHTML=html;box.querySelectorAll('[style*=zoom]').forEach(e=>e.style.zoom='');document.body.appendChild(box);
+    const box=document.createElement('div');box.className='pdfbox'+(orient==='portrait'?' pdf-p':'');box.innerHTML=html;box.querySelectorAll('[style*=zoom]').forEach(e=>e.style.zoom='');document.body.appendChild(box);
     // SVG 先轉成圖片，html2canvas 才畫得準
     await Promise.all([...box.querySelectorAll('svg')].map(sv=>new Promise(ok=>{const vb=sv.viewBox.baseVal;if(vb&&vb.width){sv.setAttribute('width',1400);sv.setAttribute('height',Math.round(1400*vb.height/vb.width))}const im=new Image();im.onload=ok;im.onerror=ok;im.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(sv.outerHTML);sv.replaceWith(im)})));
-    const secs=box.querySelectorAll('.plot-page').length?[...box.querySelectorAll('.plot-page')]:[box];
-    const pdf=new jspdf.jsPDF({orientation:'landscape',unit:'mm',format:'a4'}),PW=297,PH=210,M=8,W=PW-2*M,H=PH-2*M;let first=true;
-    for(const el of secs){const cv=await html2canvas(el,{scale:2,backgroundColor:'#fff'});const ph=Math.floor(H*cv.width/W);
-      for(let y=0;y<cv.height;y+=ph){const h=Math.min(ph,cv.height-y),c=document.createElement('canvas');c.width=cv.width;c.height=h;c.getContext('2d').drawImage(cv,0,y,cv.width,h,0,0,cv.width,h);
-        if(!first)pdf.addPage();first=false;pdf.addImage(c.toDataURL('image/jpeg',0.92),'JPEG',M,M,W,h*W/cv.width)}}
+    // 報表每一大類從新頁開始，表頭放在第一頁
+    {const sh=box.querySelector('.sheet'),s0=box.querySelector('.rep-sec');if(sh&&s0)[...sh.querySelectorAll(':scope>h1,:scope>.meta')].reverse().forEach(e=>s0.prepend(e))}
+    const secs=box.querySelectorAll('.plot-page').length?[...box.querySelectorAll('.plot-page,.plot-tblp')]:box.querySelectorAll('.rep-sec').length?[...box.querySelectorAll('.rep-sec')]:[box];
+    const L=orient==='landscape',pdf=new jspdf.jsPDF({orientation:L?'landscape':'portrait',unit:'mm',format:'a4'}),PW=L?297:210,PH=L?210:297,M=8,W=PW-2*M,H=PH-2*M;let first=true;
+    for(const el of secs){const cv=await html2canvas(el,{scale:2,backgroundColor:'#fff'});const k=cv.width/W,ph=Math.floor(H*k),top=el.getBoundingClientRect().top,sc=cv.height/(el.offsetHeight||1);
+      // 換頁切在表格列之間，不把一列切成兩半；出圖整張縮到一頁
+      const cuts=[...el.querySelectorAll('tr')].map(r=>(r.getBoundingClientRect().bottom-top)*sc).filter(v=>v>0).sort((a,b)=>a-b);
+      if(el.classList.contains('plot-page')){const f=Math.min(W/cv.width,H/cv.height);if(!first)pdf.addPage();first=false;pdf.addImage(cv.toDataURL('image/jpeg',0.92),'JPEG',M+(W-cv.width*f)/2,M,cv.width*f,cv.height*f);continue}
+      for(let y=0;y<cv.height-1;){let e=Math.min(cv.height,y+ph);if(e<cv.height){const ok=cuts.filter(v=>v>y+ph*0.3&&v<=e);if(ok.length)e=Math.round(ok[ok.length-1])}
+        const h=e-y,c=document.createElement('canvas');c.width=cv.width;c.height=h;c.getContext('2d').drawImage(cv,0,y,cv.width,h,0,0,cv.width,h);
+        if(!first)pdf.addPage();first=false;pdf.addImage(c.toDataURL('image/jpeg',0.92),'JPEG',M,M,W,h/k);y=e}}
     box.remove();
     const file=new File([pdf.output('blob')],name.replace(/[\\/:*?"<>|]/g,'_')+'.pdf',{type:'application/pdf'});S._pdf=file;
     openDlg('PDF 已產生',`<p>${esc(file.name)}（${Math.ceil(file.size/1024)} KB）</p><p class="muted small">按「分享／列印」後，在分享選單選「列印」或「儲存到檔案」。</p><div class="row"><button class="btn primary" data-act="pdfshare">分享／列印</button><button class="btn" data-act="pdfopen">開啟 PDF</button><button class="btn" data-act="fdl">下載</button></div>`);
@@ -1912,7 +1926,7 @@ document.addEventListener('click',async e=>{
   case 'xlsxsum':{repXlsx(p,S.sumB&&p.bldgs.includes(S.sumB)?S.sumB:p.bldgs[0]);break}
   case 'copysum':{const {fl,F}=summary(p,S.sumB||'');const K=['版','樑','柱','牆','其他'];const LS=num(p.loss,1.1);const t=(key,title)=>{const ls=key==='form'&&LS!==1;const rows=[[title],['樓層','範圍',...K,'樓層合計',...(ls?['含損耗 ×'+LS]:[])]];const tot=K.map(()=>0);fl.forEach(f=>{const r=F[f][key];const v=K.map(k=>r[k]);v.forEach((x,i)=>tot[i]+=x);const sm=v.reduce((a,b)=>a+b,0);rows.push([f,flRange(p,f),...v.map(f2),f2(sm),...(ls?[f2(sm*LS)]:[])])});const all=tot.reduce((a,b)=>a+b,0);rows.push(['總計','',...tot.map(f2),f2(all),...(ls?[f2(all*LS)]:[])]);return rows};
     copyText([...t('form','模板分層數量統計總表 (m²)'),[],...t('conc','混凝土分層數量統計總表 (m³)')].map(r=>r.join('\t')).join('\n'));break}
-  case 'print':{const sh=$('#sheet');const html=sh?sh.outerHTML:[...document.querySelectorAll('#main .panel')].filter(x=>x.querySelector('table')).map(x=>x.outerHTML).join('');printOut(html,`${p.name||'專案'}_${S.tab==='rep'?'模板報表':'分層統計'}`);break}
+  case 'print':{const sh=$('#sheet');const html=sh?sh.outerHTML:[...document.querySelectorAll('#main .panel')].filter(x=>x.querySelector('table')).map(x=>x.outerHTML).join('');printOut(html,`${p.name||'專案'}_${S.tab==='rep'?'模板報表':'分層統計'}`,'portrait');break}
   case 'plotz':{const k=el.dataset.k;if(k==='0')plotPZ.fit();else plotPZ.zoom(k==='1'?1.5:1/1.5);break}
   case 'plotprint':plotPrint(p);break;
   case 'plotpng':plotPNG(p);break;
