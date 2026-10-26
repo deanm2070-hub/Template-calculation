@@ -456,9 +456,65 @@ const ROLE_RX={slab:/SLAB|SLB|版|樓板|FLOOR/i,col:/COL|柱/i,beam:/BEAM|BM|�
 function guessRoles(layers){const r={};Object.keys(layers).forEach(l=>{for(const k of ['slab','col','beam','wall'])if(ROLE_RX[k].test(l)){r[l]=k;break}});return r}
 const RX_SLAB=/^[A-Za-z+＋][A-Za-z0-9+\-']{0,5}$/;
 const RX_COL=/^[A-Z]{0,3}C[0-9A-Za-z\-]*$/i;
-const RX_BEAM=/^([A-Z]{0,2}[BG][0-9A-Za-z\-]*)\s*(?:[(（]?\s*(\d{2,3})\s*[xX×*]\s*(\d{2,3})\s*[)）]?)?$/i;
+const RX_BEAM=/^([A-Z]{0,2}[BGJ][0-9A-Za-z\-]*)\s*(?:[(（]?\s*(\d{2,3})\s*[xX×*]\s*(\d{2,3})\s*[)）]?)?$/i;
 const RX_WALL=/^([A-Z]{0,2}W[0-9A-Za-z\-]*)/i;
 
+/* 由梁、柱、牆圍出樓版每一格（淨面積，扣除開口與樓梯） */
+function slabBays(ents,k,polys,cols,beams,walls){
+  const cs=0.01/k;// 1cm 格
+  let outlines=polys.filter(q=>cols.filter(c=>inPoly(c.c,q)).length>=2);
+  const holes=polys.filter(q=>!outlines.includes(q));
+  if(!outlines.length){// 無版外框：以柱群外框代替
+    const used=new Set();cols.forEach((c,i)=>{if(used.has(i))return;const g=[c];used.add(i);for(let j=0;j<g.length;j++)cols.forEach((o,oi)=>{if(!used.has(oi)&&Math.hypot(o.c[0]-g[j].c[0],o.c[1]-g[j].c[1])*k<12){used.add(oi);g.push(o)}});
+      if(g.length<3)return;const bb=bbox(g.flatMap(o=>o.pts));outlines.push([[bb[0],bb[1]],[bb[2],bb[1]],[bb[2],bb[3]],[bb[0],bb[3]]])});
+  }
+  const stairPts=[];ents.lines.forEach(l=>{if(/STAIR|樓梯/i.test(l.l))stairPts.push([(l.a[0]+l.b[0])/2,(l.a[1]+l.b[1])/2])});
+  ents.polys.forEach(q=>{if(/STAIR|樓梯/i.test(q.l))q.pts.forEach(v=>stairPts.push(v))});
+  const bays=[];let stairs=0,opens=0;
+  outlines.forEach(O=>{
+    const bb=bbox(O),x0=bb[0]-2*cs,y0=bb[1]-2*cs,W=Math.ceil((bb[2]-bb[0])/cs)+4,H=Math.ceil((bb[3]-bb[1])/cs)+4;
+    if(W*H>6e6)return;
+    const G=new Uint8Array(W*H);
+    const fill=(poly,v,only)=>{const pb=bbox(poly);const r0=Math.max(0,Math.floor((pb[1]-y0)/cs)),r1=Math.min(H-1,Math.ceil((pb[3]-y0)/cs));
+      for(let r=r0;r<=r1;r++){const y=y0+(r+0.5)*cs,xs=[];for(let i=0,j=poly.length-1;i<poly.length;j=i++){const [xi,yi]=poly[i],[xj,yj]=poly[j];if((yi>y)!==(yj>y))xs.push(xi+(y-yi)/(yj-yi)*(xj-xi))}
+        xs.sort((a,b)=>a-b);for(let q=0;q+1<xs.length;q+=2){const c0=Math.max(0,Math.ceil((xs[q]-x0)/cs-0.5)),c1=Math.min(W-1,Math.floor((xs[q+1]-x0)/cs-0.5));for(let c=c0;c<=c1;c++){const id=r*W+c;if(only==null||G[id]===only)G[id]=v}}}};
+    fill(O,1);
+    const rectOf=(p0,p1,w,ext)=>{const dx=p1[0]-p0[0],dy=p1[1]-p0[1],L=Math.hypot(dx,dy)||1,ux=dx/L,uy=dy/L,nx=-uy*w/2,ny=ux*w/2,e=ext;
+      const a=[p0[0]-ux*e,p0[1]-uy*e],b=[p1[0]+ux*e,p1[1]+uy*e];return [[a[0]+nx,a[1]+ny],[b[0]+nx,b[1]+ny],[b[0]-nx,b[1]-ny],[a[0]-nx,a[1]-ny]]};
+    const near=pt=>pt[0]>=bb[0]-1/k&&pt[0]<=bb[2]+1/k&&pt[1]>=bb[1]-1/k&&pt[1]<=bb[3]+1/k;
+    beams.forEach(b=>{if(!near(b.p0)&&!near(b.p1))return;const w=(b.w||0.3)/k;fill(rectOf(b.p0,b.p1,w,w/2),2,1)});
+    walls.forEach(w=>{if(!near(w.p0)&&!near(w.p1))return;const ww=(w.w||0.15)/k;fill(rectOf(w.p0,w.p1,ww,ww/2),2,1)});
+    cols.forEach(c=>{if(near(c.c))fill(c.pts,2,1)});
+    holes.forEach(q=>{if(inPoly(centroid(q),O)){fill(q,2,1);opens++}});
+    // 連通區域
+    const lab=new Int32Array(W*H);let nl=0;const comps=[];
+    for(let i=0;i<W*H;i++){if(G[i]!==1||lab[i])continue;nl++;const st=[i];lab[i]=nl;let n=0,minx=W,miny=H,maxx=0,maxy=0;
+      while(st.length){const v=st.pop();n++;const x=v%W,y=(v/W)|0;if(x<minx)minx=x;if(x>maxx)maxx=x;if(y<miny)miny=y;if(y>maxy)maxy=y;
+        for(const u of [v-1,v+1,v-W,v+W]){if(u<0||u>=W*H)continue;if(Math.abs((u%W)-x)>1)continue;if(G[u]===1&&!lab[u]){lab[u]=nl;st.push(u)}}}
+      comps.push({id:nl,n,minx,miny,maxx,maxy})}
+    comps.forEach(cp=>{const A=cp.n*cs*cs*k*k;if(A<0.3)return;
+      const inC=pt=>{const c=Math.floor((pt[0]-x0)/cs),r=Math.floor((pt[1]-y0)/cs);return c>=0&&r>=0&&c<W&&r<H&&lab[r*W+c]===cp.id};
+      if(stairPts.filter(inC).length>=6){stairs++;return}
+      // 外輪廓（格邊追蹤）
+      const id=cp.id,at=(x,y)=>x>=0&&y>=0&&x<W&&y<H&&lab[y*W+x]===id;const nxt=new Map();
+      for(let y=cp.miny;y<=cp.maxy;y++)for(let x=cp.minx;x<=cp.maxx;x++){if(!at(x,y))continue;
+        if(!at(x,y-1))nxt.set(x+','+y,[x+1,y]);if(!at(x+1,y))nxt.set((x+1)+','+y,[x+1,y+1]);if(!at(x,y+1))nxt.set((x+1)+','+(y+1),[x,y+1]);if(!at(x-1,y))nxt.set(x+','+(y+1),[x,y])}
+      let best=null;const seen=new Set();
+      nxt.forEach((v,key)=>{if(seen.has(key))return;const loop=[];let kk=key,guard=0;while(!seen.has(kk)&&guard++<4e5){seen.add(kk);const [a,b]=kk.split(',').map(Number);loop.push([a,b]);const n2=nxt.get(kk);if(!n2)break;kk=n2[0]+','+n2[1]}
+        if(!best||Math.abs(polyArea(loop))>Math.abs(polyArea(best)))best=loop});
+      if(!best||best.length<4)return;
+      const simp=best.filter((p,i)=>{const a=best[(i-1+best.length)%best.length],c=best[(i+1)%best.length];return (p[0]-a[0])*(c[1]-p[1])-(p[1]-a[1])*(c[0]-p[0])!==0});
+      bays.push(simp.map(([x,y])=>[x0+x*cs,y0+y*cs]));
+    });
+  });
+  // 頂點對齊到附近的梁、柱、外框線（1cm 格造成的誤差）
+  const xsL=[],ysL=[];const addSeg=(a,b)=>{if(Math.abs(a[0]-b[0])<1e-6*Math.abs(a[1]-b[1])+1e-9)xsL.push(a[0]);if(Math.abs(a[1]-b[1])<1e-6*Math.abs(a[0]-b[0])+1e-9)ysL.push(a[1])};
+  ents.lines.forEach(l=>addSeg(l.a,l.b));ents.polys.forEach(q=>q.pts.forEach((v,i)=>{if(i)addSeg(q.pts[i-1],v)}));
+  xsL.sort((a,b)=>a-b);ysL.sort((a,b)=>a-b);
+  const snap=(arr,v)=>{let lo=0,hi=arr.length-1;while(lo<hi){const m=(lo+hi)>>1;if(arr[m]<v)lo=m+1;else hi=m}let b=v,bd=0.02/k;[lo-1,lo,lo+1].forEach(i=>{if(i>=0&&i<arr.length&&Math.abs(arr[i]-v)<bd){bd=Math.abs(arr[i]-v);b=arr[i]}});return b};
+  const out=bays.map(q=>dedupe(q.map(([x,y])=>[snap(xsL,x),snap(ysL,y)]))).filter(q=>q.length>=3);
+  return {bays:out,stairs,opens};
+}
 function recognize(ents,d,P){
   const k=d.unit, m=v=>v*k; // 圖面單位 → m
   const role=d.roles||{};
@@ -500,7 +556,10 @@ function recognize(ents,d,P){
   const walls=pairs(segsOf('wall'),0.08,0.6);
   walls.forEach(w=>{let best=null,bd=1.0/k;T.forEach(t=>{const mm=t.s.match(RX_WALL);if(!mm)return;const dd=segDist([t.x,t.y],w.p0,w.p1);if(dd<bd){bd=dd;best=mm}});w.code=best?best[1]:'W'});
   // 版
-  const slabPolys=ents.polys.filter(p=>on('slab')(p.l)&&p.closed).map(p=>dedupe(p.pts)).filter(p=>p.length>=3&&Math.abs(polyArea(p))*k*k>=0.3);
+  let slabPolys=ents.polys.filter(p=>on('slab')(p.l)&&p.closed).map(p=>dedupe(p.pts)).filter(p=>p.length>=3&&Math.abs(polyArea(p))*k*k>=0.3);
+  // 版圖層若只是整層外框（框內含柱），改由梁、柱圍出的每一格計算樓版淨面積
+  let bayInfo=null;
+  if(beams.length>=3&&(!slabPolys.length||slabPolys.some(q=>cols.filter(c=>inPoly(c.c,q)).length>=2))){bayInfo=slabBays(ents,k,slabPolys,cols,beams,walls);slabPolys=bayInfo.bays}
   const beamSegs=segsOf('beam'),wallSegs=segsOf('wall'),colSegs=segsOf('col');
   const slabs=slabPolys.map((pts,si)=>{
     const A=Math.abs(polyArea(pts))*k*k;
@@ -538,8 +597,10 @@ function recognize(ents,d,P){
     const colHits=[];
     cols.forEach(cc=>{if(cc.shape!=='rect')return;const cl=clipConvex(pts,cc.pts);if(cl.length<3)return;const a=Math.abs(polyArea(cl))*k*k;if(a<0.0005)return;const bb=bbox(cl),w=(bb[2]-bb[0])*k,h=(bb[3]-bb[1])*k;colHits.push({pts:cl,a,w,h,rect:Math.abs(w*h-a)<0.0005})});
     const tt=fm(t);
-    const sealT=edges.filter(e=>e.free>=0.05).map(e=>`${f2(e.free)}*${tt}`);
-    const wallT=edges.filter(e=>e.wall>=0.05).map(e=>`${f2(e.wall)}*${tt}`);
+    // 梁柱圍出的版格已是淨面積：不再扣版牆接頭、柱頭；封模只算 0.2m 以上的自由邊（懸臂版邊、開口邊）
+    const sealT=edges.filter(e=>e.free>=(bayInfo?0.2:0.05)).map(e=>`${f2(e.free)}*${tt}`);
+    const wallT=bayInfo?[]:edges.filter(e=>e.wall>=0.05).map(e=>`${f2(e.wall)}*${tt}`);
+    if(bayInfo)colHits.length=0;
     const colT=colHits.map(h=>h.rect?`${fm(Math.round(h.w*1000)/1000)}*${fm(Math.round(h.h*1000)/1000)}`:f2(h.a));
     return {pts,code,t,A,orig:f2(A),seal:sealT.join('+'),wall:wallT.join('+'),col:colT.join('+'),
       geo:{pts:pts.map(q=>[q[0]*k,q[1]*k]),edges:edges.map(e=>({a:[e.a[0]*k,e.a[1]*k],b:[e.b[0]*k,e.b[1]*k],L:e.L,wall:e.wall,free:e.free})),cols:colHits.map(h=>h.pts.map(q=>[q[0]*k,q[1]*k]))}};
@@ -566,7 +627,9 @@ function recognize(ents,d,P){
       let A=0,B=0;[0.25,0.5,0.75].forEach(t=>{const m=[b.p0[0]+dx*t,b.p0[1]+dy*t];if(os.some(o=>inSlab([m[0]+nx*o,m[1]+ny*o])))A++;if(os.some(o=>inSlab([m[0]-nx*o,m[1]-ny*o])))B++});
       b.edge=(A===0)!==(B===0)});
   }
-  return {slabs,cols:colsF,beams,walls,dropped};
+  // 柱的梁柱接頭：接到柱的每支梁，扣 梁寬×(梁深−版厚)
+  colsF.forEach(c=>{const bb=bbox(c.pts),m=0.2/k;c.jt=beams.filter(b=>[b.p0,b.p1].some(p=>p[0]>=bb[0]-m&&p[0]<=bb[2]+m&&p[1]>=bb[1]-m&&p[1]<=bb[3]+m)).map(b=>[b.b,b.h])});
+  return {slabs,cols:colsF,beams,walls,dropped,bays:bayInfo?{n:slabPolys.length,stairs:bayInfo.stairs,opens:bayInfo.opens}:null};
 }
 
 /* 依圖形內容判斷圖層角色（圖層名稱不標準時使用） */
@@ -619,6 +682,22 @@ function detectFloors(name,ents){
 }
 function guessUnit(ext){const w=Math.max(ext[2]-ext[0],ext[3]-ext[1]);if(!isFinite(w))return 0.001;return w>5000?0.001:w>200?0.01:1}
 /* 一個檔案裡有好幾張平面圖：找出各圖的圖名，把構件分配給最近的圖名（圖名在圖的下方） */
+function levelBelow(f,all){if(/^\d+$/.test(f))return +f<=1?'F':String(+f-1);const b=String(f).match(/^B(\d+)$/);if(b){const nb='B'+(+b[1]+1);return all.includes(nb)?nb:'F'}return f}
+function planStory(s,all){
+  const RT=/屋突\s*([一二三四五六七八九十\d]+)\s*層/;
+  const tw=all.map(t=>t.match(RT)).filter(Boolean).map(m=>cnum(m[1])).filter(n=>n>0);
+  const nums=all.flatMap(t=>RT.test(t)||/屋頂/.test(t)?[]:titleFloors(t)).filter(f=>/^\d+$/.test(f)).map(Number);const top=nums.length?String(Math.max(...nums)):'R1';
+  const m=s.match(RT);if(m){const n=cnum(m[1]);return [n===1?top:'R'+(n-1)]}
+  if(/屋頂|\bRF\b|^R\d*F/i.test(s))return [tw.length?'R'+Math.max(...tw):top];
+  const lv=titleFloors(s);const allLv=all.flatMap(t=>titleFloors(t));return [...new Set(lv.map(f=>levelBelow(f,allLv)))];
+}
+// 建築平面：屋突一層平面 = 屋突樓層 R1；屋頂層平面 = 最上層屋頂
+function archStory(s,all){
+  const RT=/屋突\s*([一二三四五六七八九十\d]+)\s*層/;const tw=all.map(t=>t.match(RT)).filter(Boolean).map(m=>cnum(m[1])).filter(n=>n>0);
+  const m=s.match(RT);if(m)return ['R'+cnum(m[1])];
+  if(/屋頂/.test(s))return ['R'+(tw.length?Math.max(...tw)+1:1)];
+  return titleFloors(s);
+}
 function titleFloors(s){let f=parseFloors(s);if(f.includes('F')&&f.length>1)f=f.filter(x=>x!=='F');return f}
 function findPlanTitles(ents){
   const c=ents.texts.filter(t=>t.s.length<=26&&/平面圖|PLAN/i.test(t.s)&&!/說明|為準|詳|NOTE|檢討|綠化|示意|面積|剖面|立面/i.test(t.s)).map(t=>({t,fl:titleFloors(t.s)})).filter(x=>x.fl.length);
@@ -647,14 +726,19 @@ function autoProcess(P,d,ents){
   const lv=readLevels(ents).filter(r=>r.h!=null&&r.h>0&&r.h<20);let nLv=0;
   lv.forEach(r=>{let n=normFloor(r.name,P.floors);if(!n){const pf=parseFloors(r.name);if(pf.length===1){ensureFloors(P,pf);n=pf[0]}}const f=P.floors.find(x=>x.name===n);if(f){f.h=r.h;nLv++}});
   const det=detectFloors(d.name,ents);
-  let floors=det.floors;if(floors.length)ensureFloors(P,floors);
+  const titles=findPlanTitles(ents);
+  d.kind=drawKind(d.name,ents,titles);
+  // 結構平面圖畫的是該樓板「下方」樓層的柱、梁、版：二層結構平面 → 1 樓，屋突一層 → 頂樓，基礎及一層 → 基礎
+  const st=d.kind!=='arch',tStr=titles.map(t=>t.s);
+  let floors=det.floors.slice();if(st)floors=[...new Set(floors.map(f=>levelBelow(f,floors)))];
+  if(floors.length)ensureFloors(P,floors);
   else{floors=[P.floors.find(f=>f.name==='1')?.name||P.floors[0]?.name||'1'];ensureFloors(P,floors)}
-  d.floors=floors;d.floorFrom=det.from||'未標示，暫列 '+floors[0]+' 層';d.levels=nLv;
+  d.floors=floors;d.floorFrom=(det.from||'未標示，暫列 '+floors[0]+' 層')+(st&&det.floors.length?'；結構平面圖歸入下方樓層':'');d.levels=nLv;
   d.slabT=P.slabT;d.beamH=P.beamH;
   const R=recognize(ents,d,P);
-  const titles=findPlanTitles(ents);
-  if(titles.length>=2||(titles.length===1&&!det.floors.length)){assignPlans(R,titles,d.unit);d.plans=titles.map(t=>t.s);d.floorFrom='依各平面圖圖名分層（'+titles.length+' 張）'}
-  d.kind=drawKind(d.name,ents,titles);
+  if(titles.length>=2||(titles.length===1&&!det.floors.length)){assignPlans(R,titles,d.unit);d.plans=titles.map(t=>t.s);d.floorFrom='依各平面圖圖名分層（'+titles.length+' 張）'+(st?'；結構平面圖歸入下方樓層':'');
+    [R.slabs,R.cols,R.beams,R.walls].forEach(a=>a.forEach(e=>{if(e._plan)e.fl=st?planStory(e._plan,tStr):archStory(e._plan,tStr)}));
+    d.planAt={};titles.forEach(t=>(st?planStory(t.s,tStr):archStory(t.s,tStr)).forEach(f=>{if(!d.planAt[f])d.planAt[f]=[t.cx*d.unit,t.y*d.unit]}))}
   applyRecog(P,d,R);
   return R;
 }
@@ -707,9 +791,10 @@ function memCalc(m,P){
   if(m.type==='柱'){const hn=r2(H-ts);
     if(m.shape==='circle'){form=Math.PI*b*hn*n-ded;conc=Math.PI*b*b/4*hn*n;ft=`π×${fm(b)}×${fm(hn)}×${n}`;ct=`π×${fm(b)}²/4×${fm(hn)}×${n}`}
     else{form=2*(b+h)*hn*n-ded;conc=b*h*hn*n;ft=`2×(${fm(b)}+${fm(h)})×${fm(hn)}×${n}`;ct=`${fm(b)}×${fm(h)}×${fm(hn)}×${n}`}
-    if(ded)ft+=` − ${fm(ded)}`;}
-  else if(m.type==='梁'){const hs=r2(h-ts);const side=m.edge?`${fm(hs)}+${fm(h)}`:`2×${fm(hs)}`;const sv=m.edge?hs+h:2*hs;
-    form=(b+sv)*L*n-ded;conc=b*h*L*n;ft=`(${fm(b)}+${side})×${fm(L)}${n!==1?'×'+n:''}`;ct=`${fm(b)}×${fm(h)}×${fm(L)}${n!==1?'×'+n:''}`;if(ded)ft+=` − ${fm(ded)}`}
+    if(ded)ft+=m.dedf?` − (${m.dedf})`:` − ${fm(ded)}`;}
+  else if(m.type==='梁'){const hs=r2(h-ts);const side=`2×${fm(hs)}`;const sv=2*hs;
+    // 梁底下有牆的長度，梁底模扣 牆厚×長度
+    form=(b+sv)*L*n-ded;conc=b*h*L*n;ft=`(${fm(b)}+${side})×${fm(L)}${n!==1?'×'+n:''}`;ct=`${fm(b)}×${fm(h)}×${fm(L)}${n!==1?'×'+n:''}`;if(ded)ft+=m.dedf?` − (${m.dedf})`:` − ${fm(ded)}`}
   else if(m.type==='牆'){const hb=num(m.hb,0),top=hb>0?hb:ts,hn=r2(H-top);form=2*L*hn*n-2*op-ded;conc=(L*hn*n-op)*b;ft=`2×${fm(L)}×${hb>0?`(${fm(H)}−梁深${fm(hb)})`:fm(hn)}${n!==1?'×'+n:''}`+(op?` − 2×${fm(op)}`:'')+(ded?` − ${fm(ded)}`:'');ct=`(${fm(L)}×${fm(hn)}${n!==1?'×'+n:''}${op?' − '+fm(op):''})×${fm(b)}`}
   else{form=evalExpr(m.fx);conc=evalExpr(m.cx);ft=m.fx||'0';ct=m.cx||'0'}
   return {form:r2(form),conc:r2(conc),ft,ct,bad:!isFinite(form)||!isFinite(conc),H,ts};
@@ -780,15 +865,17 @@ function applyRecog(P,d,R){
   if(!floors.length)floors.push(...def);
   ensureFloors(P,floors);
   floors.sort((a,b)=>floorKey(a)-floorKey(b));
-  const hold=[],holdS=[],wraw=[];
+  const hold=[],holdS=[],wraw=[],isF=f=>/^(F|基礎)$/.test(f),tsD=num(d.slabT,num(P.slabT,0.15));
   floors.forEach(f=>{
     const on=e=>flOf(e).includes(f);
-    R.slabs.filter(on).sort((a,b)=>a.code.localeCompare(b.code)||(b.pts[0][1]-a.pts[0][1])).forEach(s=>{const o={id:uid(),bldg:d.bldg,floor:f,code:s.code,no:nextNo(P),t:s.t,orig:s.orig,seal:s.seal,wall:s.wall,col:s.col,src:d.id,geo:s.geo};if(d.kind==='arch')holdS.push(o);else P.slabs.push(o)});
+    if(!isF(f))R.slabs.filter(on).sort((a,b)=>a.code.localeCompare(b.code)||(b.pts[0][1]-a.pts[0][1])).forEach(s=>{const o={id:uid(),bldg:d.bldg,floor:f,code:s.code,no:nextNo(P),t:s.t,orig:s.orig,seal:s.seal,wall:s.wall,col:s.col,src:d.id,geo:s.geo};if(d.kind==='arch')holdS.push(o);else P.slabs.push(o)});
     const grp=new Map();
-    R.cols.filter(on).forEach(c=>{const key=`${c.code}|${c.shape}|${c.b}|${c.h}|${c.pos||''}`;if(!grp.has(key))grp.set(key,{type:'柱',code:c.code,shape:c.shape,b:c.b,h:c.h,pos:c.pos||'',n:0,geo:[]});const g=grp.get(key);g.n++;g.geo.push(c.c.map(v=>v*d.unit))});
+    if(!isF(f))R.cols.filter(on).forEach(c=>{const key=`${c.code}|${c.shape}|${c.b}|${c.h}|${c.pos||''}`;if(!grp.has(key))grp.set(key,{type:'柱',code:c.code,shape:c.shape,b:c.b,h:c.h,pos:c.pos||'',n:0,geo:[],jt:{}});const g=grp.get(key);g.n++;
+      (c.jt||[]).forEach(([bw,bh])=>{const hs=r2(bh-tsD);if(hs<=0)return;const kk=fm(bw)+'×'+fm(hs);g.jt[kk]=(g.jt[kk]||0)+1});g.geo.push(c.c.map(v=>v*d.unit))});
     R.beams.filter(on).forEach(b=>{const key=`B|${b.code}|${b.b}|${b.h}|${b.edge?1:0}`;if(!grp.has(key))grp.set(key,{type:'梁',code:b.code,b:b.b,h:b.h,edge:!!b.edge,pos:b.edge?'邊梁':'',L:0,n:1,lens:[],geo:[]});const g=grp.get(key);g.L=Math.round((g.L+b.L)*100)/100;g.lens.push(b.L);g.geo.push([b.p0.map(v=>v*d.unit),b.p1.map(v=>v*d.unit)])});
     R.walls.filter(on).forEach(w=>{const key=`W|${w.code}|${w.w}`;if(!grp.has(key))grp.set(key,{type:'牆',code:w.code,b:w.w,L:0,n:1,lens:[],geo:[]});const g=grp.get(key);g.L=Math.round((g.L+w.L)*100)/100;g.lens.push(w.L);g.geo.push([w.p0.map(v=>v*d.unit),w.p1.map(v=>v*d.unit)])});
-    grp.forEach(g=>{const m=Object.assign({id:uid(),bldg:d.bldg,floor:f,src:d.id},g);if(g.type==='牆')wraw.push(m);else if(d.kind==='arch')hold.push(m);else P.members.push(m)});
+    grp.forEach(g=>{if(g.jt){const e=Object.entries(g.jt);g.ded=r2(e.reduce((a,[kk,n])=>{const [x,y]=kk.split('×').map(Number);return a+x*y*n},0))||null;g.dedf=e.map(([kk,n])=>kk+'×'+n).join('+');delete g.jt}
+      const m=Object.assign({id:uid(),bldg:d.bldg,floor:f,src:d.id},g);if(g.type==='牆')wraw.push(m);else if(d.kind==='arch')hold.push(m);else P.members.push(m)});
   });
   d.hold=hold;d.holdS=holdS;d.wraw=wraw;
   d.floors=floors;
@@ -811,12 +898,11 @@ function alignPts(A,B,tol=0.3){
 function reconcile(P){
   P.members=P.members.filter(m=>!m.held&&!m.wauto);P.slabs=P.slabs.filter(s=>!s.held);
   const st=P.drawings.filter(d=>d.kind!=='arch');
-  const cover=new Set(st.flatMap(d=>d.floors||[]));
+  const cover=new Set(st.flatMap(d=>d.floors||[]));const anySt=st.length>0;
   P.drawings.filter(d=>d.kind==='arch').forEach(d=>{d.used=0;
-    (d.hold||[]).forEach(m=>{if(!cover.has(m.floor)){P.members.push(Object.assign({},m,{held:true}));d.used++}});
-    (d.holdS||[]).forEach(o=>{if(!cover.has(o.floor)){P.slabs.push(Object.assign({},o,{held:true}));d.used++}})});
+    (d.hold||[]).forEach(m=>{if(!anySt&&!cover.has(m.floor)){P.members.push(Object.assign({},m,{held:true}));d.used++}});
+    (d.holdS||[]).forEach(o=>{if(!anySt&&!cover.has(o.floor)){P.slabs.push(Object.assign({},o,{held:true}));d.used++}})});
   // 牆
-  const fl=P.floors.map(f=>f.name),up=f=>fl[fl.indexOf(f)+1];
   const stM=(t,f)=>P.members.filter(m=>m.type===t&&m.floor===f&&!m.held&&st.some(d=>d.id===m.src));
   const colsOf=(d,f)=>(d.hold||[]).concat(P.members.filter(m=>m.src===d.id)).filter(m=>m.type==='柱'&&m.floor===f).flatMap(m=>m.geo||[]);
   const stWalls={};P.drawings.filter(d=>d.kind!=='arch').forEach(d=>(d.wraw||[]).forEach(w=>(stWalls[w.floor]=stWalls[w.floor]||[]).push({d,w})));
@@ -824,26 +910,44 @@ function reconcile(P){
   const shift=(d,f,u)=>{const k=d.id+'|'+f+'|'+u;if(!(k in tcache)){const B=st.flatMap(s=>colsOf(s,u));tcache[k]=d.kind!=='arch'&&f===u?[0,0]:alignPts(colsOf(d,f),B)}return tcache[k]};
   const near=(p,a,b,tol)=>{const dx=b[0]-a[0],dy=b[1]-a[1],L2=dx*dx+dy*dy||1,t=((p[0]-a[0])*dx+(p[1]-a[1])*dy)/L2;if(t<-0.02||t>1.02)return false;return Math.hypot(a[0]+dx*t-p[0],a[1]+dy*t-p[1])<=tol};
   const para=(a,b,c,e)=>{const u=[b[0]-a[0],b[1]-a[1]],v=[e[0]-c[0],e[1]-c[1]];return Math.abs(u[0]*v[1]-u[1]*v[0])/((Math.hypot(...u)*Math.hypot(...v))||1)<0.1};
-  P.drawings.forEach(d=>{d.wdup=0;d.wout=0;(d.wraw||[]).forEach(w=>{
-    const f=w.floor,u=up(f);
-    // 上一層結構平面的梁（對位到本圖座標）
+  // 梁底有牆的部分扣梁底模（牆厚×長度），每次重算
+  const bded=new Map(),seenW=new Map();let segN=0;P.members.forEach(m=>{if(m.type==='梁'&&!m.held&&m.wded){m.ded=null;m.dedf='';m.wded=false}});
+  // 建築圖各層的結構範圍：有對位的層用結構柱位；沒有的層，依其他層「圖名 → 範圍」的相對位置推估
+  const fpc={};const fpOf=(d,f)=>{const key=d.id+'|'+f;if(key in fpc)return fpc[key];
+    const box=g=>{const t=shift(d,g,g);if(!t)return null;const C=st.flatMap(s=>colsOf(s,g)).map(c=>[c[0]-t[0],c[1]-t[1]]);if(C.length<3)return null;const xs=C.map(c=>c[0]),ys=C.map(c=>c[1]);return [Math.min(...xs)-1.5,Math.min(...ys)-1.5,Math.max(...xs)+1.5,Math.max(...ys)+1.5]};
+    let b=box(f);
+    if(!b&&d.planAt&&d.planAt[f]){const ref=Object.keys(d.planAt).map(g=>[g,box(g)]).find(([,x])=>x);if(ref){const [g,x]=ref,o=d.planAt[g],n=d.planAt[f];b=[x[0]-o[0]+n[0],x[1]-o[1]+n[1],x[2]-o[0]+n[0],x[3]-o[1]+n[1]]}}
+    return fpc[key]=b};
+  const rcMin=num(P.rcWall,0.15)-0.005,archFl=new Set(P.drawings.filter(d=>d.kind==='arch').flatMap(d=>d.floors||[]));
+  P.drawings.forEach(d=>{d.wdup=0;d.wout=0;d.wthin=0;(d.wraw||[]).forEach(w=>{
+    // 牆以建築圖為準（結構圖上的牆多為套繪底圖）；專案沒有建築圖時才用結構圖的牆
+    if(d.kind!=='arch'&&archFl.size)return;
+    if(num(w.b,0.2)<rcMin){d.wthin=r2(d.wthin+num(w.L,0));return}
+    const f=w.floor,u=f;
+    // 同一樓層結構圖的梁（對位到本圖座標）
     let beams=[];const tb=u?shift(d,f,u):null;
-    if(tb)beams=stM('梁',u).flatMap(m=>(m.geo||[]).map(g=>({a:[g[0][0]-tb[0],g[0][1]-tb[1]],b:[g[1][0]-tb[0],g[1][1]-tb[1]],w:num(m.b,0.3),h:num(m.h,P.beamH)})));
-    // 同一層位置的結構圖牆（只對建築圖去重複；結構圖牆屬上一層平面）
-    let dup=[];if(d.kind==='arch'&&u){const tw=shift(d,f,u);if(tw)dup=(stWalls[u]||[]).flatMap(x=>(x.w.geo||[]).map(g=>({a:[g[0][0]-tw[0],g[0][1]-tw[1]],b:[g[1][0]-tw[0],g[1][1]-tw[1]],w:num(x.w.b,0.2)})))}
+    if(tb)beams=stM('梁',u).flatMap(m=>(m.geo||[]).map(g=>({a:[g[0][0]-tb[0],g[0][1]-tb[1]],b:[g[1][0]-tb[0],g[1][1]-tb[1]],w:num(m.b,0.3),h:num(m.h,P.beamH),m})));
+    const dup=[];
     // 建築圖：只算結構柱位範圍內（外擴 1.5m）的牆，排除同張圖上的詳圖、立面等
-    let fp=null;if(d.kind==='arch'&&tb){const C=st.flatMap(s=>colsOf(s,u)).map(c=>[c[0]-tb[0],c[1]-tb[1]]);if(C.length>=3){const xs=C.map(c=>c[0]),ys=C.map(c=>c[1]);fp=[Math.min(...xs)-1.5,Math.min(...ys)-1.5,Math.max(...xs)+1.5,Math.max(...ys)+1.5]}}
+    let fp=null;if(d.kind==='arch'){fp=fpOf(d,f);}
     const out=new Map();
-    (w.geo||[]).forEach((g,i)=>{const L=w.lens?.[i]??Math.hypot(g[1][0]-g[0][0],g[1][1]-g[0][1]);const N=Math.max(1,Math.round(L/0.1));const cnt=new Map();
+    (w.geo||[]).forEach((g,i)=>{const segK=++segN;const L=w.lens?.[i]??Math.hypot(g[1][0]-g[0][0],g[1][1]-g[0][1]);const N=Math.max(1,Math.round(L/0.1));const cnt=new Map();
       for(let j=0;j<N;j++){const t=(j+0.5)/N,p=[g[0][0]+(g[1][0]-g[0][0])*t,g[0][1]+(g[1][1]-g[0][1])*t];
         if(fp&&(p[0]<fp[0]||p[1]<fp[1]||p[0]>fp[2]||p[1]>fp[3])){cnt.set('out',(cnt.get('out')||0)+1);continue}
+        // 同一道牆被重複畫（不同圖層各畫一次）只算一次
+        {const hx=Math.round(p[0]/0.08),hy=Math.round(p[1]/0.08),ang=Math.round(((Math.atan2(g[1][1]-g[0][1],g[1][0]-g[0][0])+Math.PI)%Math.PI)/0.2);let hit=false;
+          for(let ix=-1;ix<=1&&!hit;ix++)for(let iy=-1;iy<=1&&!hit;iy++){const o=seenW.get(d.id+'|'+f+'|'+(hx+ix)+','+(hy+iy)+'|'+ang);if(o!=null&&o!==segK)hit=true}
+          if(hit){cnt.set('dup',(cnt.get('dup')||0)+1);continue}seenW.set(d.id+'|'+f+'|'+hx+','+hy+'|'+ang,segK)}
         if(dup.some(o=>para(g[0],g[1],o.a,o.b)&&near(p,o.a,o.b,(o.w+num(w.b,0.2))/2+0.05))){cnt.set('dup',(cnt.get('dup')||0)+1);continue}
-        let hb=0;beams.forEach(o=>{if(o.h>hb&&para(g[0],g[1],o.a,o.b)&&near(p,o.a,o.b,(o.w+num(w.b,0.2))/2+0.05))hb=o.h});
+        let hb=0,ob=null;beams.forEach(o=>{if(o.h>hb&&para(g[0],g[1],o.a,o.b)&&near(p,o.a,o.b,(o.w+num(w.b,0.2))/2+0.05)){hb=o.h;ob=o}});
+        if(ob){const wt=fm(num(w.b,0.2)),e=bded.get(ob.m)||{};e[wt]=(e[wt]||0)+L/N;bded.set(ob.m,e)}
         cnt.set(hb,(cnt.get(hb)||0)+1)}
       cnt.forEach((c,hb)=>{const l=Math.round(L*c/N*100)/100;if(hb==='dup'){d.wdup+=l;return}if(hb==='out'){d.wout+=l;return}if(l<0.05)return;
         if(!out.has(hb))out.set(hb,{L:0,lens:[],geo:[]});const o=out.get(hb);o.L=Math.round((o.L+l)*100)/100;o.lens.push(l);o.geo.push(g)})});
     out.forEach((o,hb)=>P.members.push(Object.assign({},w,{id:uid(),wauto:true,L:o.L,lens:o.lens,geo:o.geo,hb:hb||0,pos:hb?'至梁底':''})))});
     d.wdup=Math.round(d.wdup*100)/100;d.wout=Math.round(d.wout*100)/100});
+  bded.forEach((e,m)=>{const it=Object.entries(e).map(([t,l])=>[+t,r2(l)]).filter(([,l])=>l>=0.05);if(!it.length)return;
+    m.ded=r2(it.reduce((a,[t,l])=>a+t*l,0));m.dedf=it.map(([t,l])=>fm(t)+'×'+fm(l)).join('+');m.wded=true});
 }
 /* =========================================================
    畫面
@@ -924,7 +1028,7 @@ function viewDraw(p){
       <div class="row" style="justify-content:space-between"><h3>${esc(d.name)}</h3><button class="btn sm danger" data-act="dwgdel" data-id="${d.id}">刪除圖檔</button></div>
       ${d.recog?`<div class="stat"><div><b>${d.recog.slabs}</b><span>版</span></div><div><b>${d.recog.cols}</b><span>柱</span></div><div><b>${d.recog.beams}</b><span>梁段</span></div><div><b>${d.recog.walls}</b><span>牆段</span></div></div>`:''}
       ${d.recog&&d.recog.dropped?`<div class="muted small">已排除 ${d.recog.dropped} 個重疊或離結構太遠的柱框（例如柱表、詳圖），未計入柱數量。</div>`:''}
-      <div class="small">樓層：<b>${esc(d.floors.join('、')||'—')}</b>　<span class="muted">（${esc(d.floorFrom||'')}）</span><br>圖別：<b>${d.kind==='arch'?'建築圖':'結構圖'}</b>${d.kind==='arch'?`　<span class="muted">已與結構圖疊合，柱、梁、版以結構圖為準${d.used?`；${d.used} 筆暫用本圖（該層尚無結構圖）`:'，本圖柱、梁、版不重複計入'}${d.wdup?`；牆與結構圖重疊 ${d.wdup} m 不重複計算`:''}${d.wout?`；結構範圍外的線 ${d.wout} m 不計`:''}；牆上方有梁時牆高算到梁底</span>`:''}${d.levels?`<br>已從圖中標高更新 ${d.levels} 個樓層的層高`:''}</div>
+      <div class="small">樓層：<b>${esc(d.floors.join('、')||'—')}</b>　<span class="muted">（${esc(d.floorFrom||'')}）</span><br>圖別：<b>${d.kind==='arch'?'建築圖':'結構圖'}</b>${d.kind==='arch'?`　<span class="muted">已與結構圖疊合，柱、梁、版以結構圖為準${d.used?`；${d.used} 筆暫用本圖（該層尚無結構圖）`:'，本圖柱、梁、版不重複計入'}${d.wdup?`；牆與結構圖重疊 ${d.wdup} m 不重複計算`:''}${d.wout?`；結構範圍外的線 ${d.wout} m 不計`:''}${d.wthin?`；薄於 RC 牆厚的牆（磚牆）${d.wthin} m 不計模板`:''}；牆上方有梁時牆高算到梁底</span>`:''}${d.levels?`<br>已從圖中標高更新 ${d.levels} 個樓層的層高`:''}</div>
       ${d.recog&&!(d.recog.slabs+d.recog.cols+d.recog.beams+d.recog.walls)?'<div class="note small">這張圖沒有找到版、柱、梁或牆。若它是平面或結構圖，可展開下方「圖層對應」手動指定。</div>':''}
       <details><summary class="small muted" style="cursor:pointer">圖層對應（已自動判斷，可修正）・${/\.dwg$/i.test(d.name)?'DWG':'DXF'} ${esc(DWGVER[d.ver]||d.ver||'')}・單位 ${uName[d.unit]||d.unit}</summary>
         <div class="layers" style="margin-top:8px"><table><tbody id="layerRows"></tbody></table></div>
@@ -1097,10 +1201,11 @@ function repTSV(p,b){
 function viewSum(p){
   const b=S.sumB||'';const {fl,F}=summary(p,b);
   const K=['版','梁','柱','牆','其他'];
-  const tbl=(key,unit,title)=>{const tot={};K.forEach(k=>tot[k]=0);let all=0;
-    const rows=fl.map(f=>{const r=F[f][key];const s=K.reduce((a,k)=>a+r[k],0);K.forEach(k=>tot[k]+=r[k]);all+=s;return `<tr><td>${esc(f)}</td>${K.map(k=>`<td class="r num">${f2(r[k])}</td>`).join('')}<td class="r num"><b>${f2(s)}</b></td></tr>`}).join('');
+  const LS=num(p.loss,1.1);
+  const tbl=(key,unit,title)=>{const tot={};K.forEach(k=>tot[k]=0);let all=0;const ls=key==='form'&&LS!==1;
+    const rows=fl.map(f=>{const r=F[f][key];const s=K.reduce((a,k)=>a+r[k],0);K.forEach(k=>tot[k]+=r[k]);all+=s;return `<tr><td>${esc(f)}</td>${K.map(k=>`<td class="r num">${f2(r[k])}</td>`).join('')}<td class="r num"><b>${f2(s)}</b></td>${ls?`<td class="r num"><b>${f2(s*LS)}</b></td>`:''}</tr>`}).join('');
     return `<div class="panel stack"><div class="row" style="justify-content:space-between"><h3>${title}</h3><span class="muted small">單位 ${unit}</span></div>
-    <div class="scroll"><table class="data"><thead><tr><th>樓層</th>${K.map(k=>`<th class="r">${k}</th>`).join('')}<th class="r">樓層合計</th></tr></thead><tbody>${rows}<tr class="foot"><td>總計</td>${K.map(k=>`<td class="r num">${f2(tot[k])}</td>`).join('')}<td class="r num">${f2(all)}</td></tr></tbody></table></div></div>`};
+    <div class="scroll"><table class="data"><thead><tr><th>樓層</th>${K.map(k=>`<th class="r">${k}</th>`).join('')}<th class="r">樓層合計</th>${ls?`<th class="r">含損耗 ×${LS}</th>`:''}</tr></thead><tbody>${rows}<tr class="foot"><td>總計</td>${K.map(k=>`<td class="r num">${f2(tot[k])}</td>`).join('')}<td class="r num">${f2(all)}</td>${ls?`<td class="r num">${f2(all*LS)}</td>`:''}</tr></tbody></table></div></div>`};
   return `<div class="stack">
   <div class="row" style="justify-content:space-between"><div class="row"><label class="small muted" for="sumB">棟別</label><select id="sumB" data-filter="sumB"><option value="">全部棟別</option>${opts(p.bldgs,b)}</select></div>
   <div class="row"><button class="btn" data-act="copysum">複製兩張總表（貼到 Excel）</button>${standalone?'<button class="btn" data-act="print">列印</button>':''}</div></div>
@@ -1180,7 +1285,12 @@ function viewGuide(p){
 2. 版明細：每一版點「導引」，核對面積、各邊長、紅色牆接頭邊、藍色封模邊、橘色柱頭重疊。
 3. 模板報表：樓層小計 = 各版加總；真實模板 = 原始 + 封模 + 扣接頭合計（負值）。
 4. 梁柱牆：核對 b、h、L、H 與數量，梁長取柱面間淨跨。
-5. 總表：模板與混凝土依樓層彙總，總計應等於各明細之和。</div></div>
+   柱 = 2×(b+h)×(層高−版厚)×數量 − 梁柱接頭（每支接到的梁 梁寬×(梁深−版厚)）。
+   梁 = (梁寬 + 2×(梁深−版厚))×淨跨 − 梁下有牆的部分（牆厚×長度）。
+   牆 = 2×長度×高度；上方有梁時高度算到梁底（層高−梁深），否則算到版底。
+   樓版 = 梁、柱圍出的每一格淨面積，扣開口與樓梯（樓梯另計）。
+   結構平面圖歸入下方樓層（例：二層結構平面 → 1 樓；屋突一層結構平面 → 頂樓）。
+5. 總表：模板與混凝土依樓層彙總，總計應等於各明細之和；模板另列含損耗數量（預設 ×1.1，可在專案設定修改）。</div></div>
   <div class="guide-grid">
    <div class="gcard"><h3>版：原始模板、封模、扣版牆接頭、扣柱頭</h3>${svgSlab(slab)}<div class="formula">原始模板 = 版淨面積（梁、牆面之間）
 封模 = 自由邊長 × 版厚 t（懸臂版外緣、開口邊）
@@ -1207,6 +1317,8 @@ function viewSet(p){
     <div class="field"><label for="pB">棟別（逗號分隔）</label><input id="pB" type="text" data-pk="bldgs" value="${esc(p.bldgs.join(','))}"></div>
     <div class="field"><label for="pT">預設版厚 ts (m)</label><input id="pT" type="number" step="0.01" data-pk="slabT" value="${esc(p.slabT)}"></div>
     <div class="field"><label for="pBH">梁深預設 (m，辨識不到梁深時採用)</label><input id="pBH" type="number" step="0.01" data-pk="beamH" value="${esc(p.beamH)}"></div>
+    <div class="field"><label for="pLS">模板損耗係數（總表另列含損耗數量）</label><input id="pLS" type="number" step="0.01" data-pk="loss" value="${esc(p.loss??1.1)}"></div>
+    <div class="field"><label for="pRW">建築圖 RC 牆最小厚度 (m，較薄的視為磚牆不計模板)</label><input id="pRW" type="number" step="0.01" data-pk="rcWall" value="${esc(p.rcWall??0.15)}"></div>
   </div></div>
   <div class="panel stack"><div class="row" style="justify-content:space-between"><h3>樓層與層高（由下而上）</h3><button class="btn sm" data-act="addfloor">新增樓層</button></div>
   <table class="data"><thead><tr><th>順序</th><th>樓層名稱</th><th>層高 H (m)</th><th></th></tr></thead><tbody>
@@ -1260,7 +1372,7 @@ document.addEventListener('change',async e=>{
   if(t.dataset.mk){const tr=t.closest('tr'),m=p.members.find(x=>x.id===tr.dataset.id);const k=t.dataset.mk;
     if(k==='edge')m.edge=t.checked;else if(k==='shape')m.shape=t.checked?'circle':'rect';else if(['b','h','L','H','ts','n','ded','open'].includes(k))m[k]=t.value===''?null:+t.value;else m[k]=t.value;
     saveAll();const c=memCalc(m,p);tr.querySelector('[data-out=form]').innerHTML=`<b>${f2(c.form)}</b>`;tr.querySelector('[data-out=conc]').textContent=f2(c.conc);tr.classList.toggle('bad',c.bad);return}
-  if(t.dataset.pk){const k=t.dataset.pk;if(k==='bldgs')p.bldgs=t.value.split(/[,，、\s]+/).filter(Boolean);else if(k==='slabT'||k==='beamH')p[k]=num(t.value,p[k]);else p[k]=t.value;saveAll();if(k==='code'||k==='name')$('#crumb').textContent=`${p.code}　${p.name}`;return}
+  if(t.dataset.pk){const k=t.dataset.pk;if(k==='bldgs')p.bldgs=t.value.split(/[,，、\s]+/).filter(Boolean);else if(k==='slabT'||k==='beamH'||k==='loss'||k==='rcWall'){p[k]=num(t.value,p[k]);if(k==='rcWall'){reconcile(p);saveAll();render();return}}else p[k]=t.value;saveAll();if(k==='code'||k==='name')$('#crumb').textContent=`${p.code}　${p.name}`;return}
   if(t.dataset.fk){const i=+t.closest('tr').dataset.i,f=p.floors[i];if(t.dataset.fk==='name'){const old=f.name,nw=t.value.trim();if(!nw)return;f.name=nw;p.slabs.forEach(s=>{if(s.floor===old)s.floor=nw});p.members.forEach(m=>{if(m.floor===old)m.floor=nw});p.drawings.forEach(d=>d.floors=d.floors.map(x=>x===old?nw:x))}else f.h=num(t.value,f.h);saveAll();return}
 });
 document.addEventListener('click',async e=>{
@@ -1290,7 +1402,7 @@ document.addEventListener('click',async e=>{
   case 'dlgclose':$('#dlg').close();break;
   case 'copyrep':{const b=S.repB&&p.bldgs.includes(S.repB)?S.repB:p.bldgs[0];copyText(repTSV(p,b).map(r=>r.join('\t')).join('\n'));break}
   case 'csvrep':{const b=S.repB&&p.bldgs.includes(S.repB)?S.repB:p.bldgs[0];download(`${p.code}_模板報表_${b}.csv`,'﻿'+repTSV(p,b).map(r=>r.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(',')).join('\r\n'),'text/csv');break}
-  case 'copysum':{const {fl,F}=summary(p,S.sumB||'');const K=['版','梁','柱','牆','其他'];const t=(key,title)=>{const rows=[[title],['樓層',...K,'樓層合計']];const tot=K.map(()=>0);fl.forEach(f=>{const r=F[f][key];const v=K.map(k=>r[k]);v.forEach((x,i)=>tot[i]+=x);rows.push([f,...v.map(f2),f2(v.reduce((a,b)=>a+b,0))])});rows.push(['總計',...tot.map(f2),f2(tot.reduce((a,b)=>a+b,0))]);return rows};
+  case 'copysum':{const {fl,F}=summary(p,S.sumB||'');const K=['版','梁','柱','牆','其他'];const LS=num(p.loss,1.1);const t=(key,title)=>{const ls=key==='form'&&LS!==1;const rows=[[title],['樓層',...K,'樓層合計',...(ls?['含損耗 ×'+LS]:[])]];const tot=K.map(()=>0);fl.forEach(f=>{const r=F[f][key];const v=K.map(k=>r[k]);v.forEach((x,i)=>tot[i]+=x);const sm=v.reduce((a,b)=>a+b,0);rows.push([f,...v.map(f2),f2(sm),...(ls?[f2(sm*LS)]:[])])});const all=tot.reduce((a,b)=>a+b,0);rows.push(['總計',...tot.map(f2),f2(all),...(ls?[f2(all*LS)]:[])]);return rows};
     copyText([...t('form','模板分層數量統計總表 (m²)'),[],...t('conc','混凝土分層數量統計總表 (m³)')].map(r=>r.join('\t')).join('\n'));break}
   case 'print':window.print();break;
   case 'fs':toggleFs();break;
@@ -1349,7 +1461,7 @@ function download(name,data,type){const a=document.createElement('a');a.href=URL
 })();
 
 /* 新版本提示：網站版才有，按「更新」才重新載入 */
-const BUILD='20261026034845';
+const BUILD='20261026041825';
 function checkUpdate(){
   if(!BUILD||BUILD.startsWith('__')||!/^https?:/.test(location.protocol))return;
   fetch('version.json?t='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{
