@@ -664,7 +664,7 @@ function parseFloors(str){
   return [...out];
 }
 function floorKey(n){if(n==='F')return -1000;let m=n.match(/^B(\d+)$/);if(m)return -(+m[1]);if(/^\d+$/.test(n))return +n;m=n.match(/^R(\d+)$/);if(m)return 1000+(+m[1]);return 500}
-function ensureFloors(P,names){names.forEach(n=>{if(!P.floors.some(f=>f.name===n))P.floors.push({name:n,h:n==='F'?1.5:3.4})});P.floors.sort((a,b)=>floorKey(a.name)-floorKey(b.name))}
+function ensureFloors(P,names){names.forEach(n=>{if(!P.floors.some(f=>f.name===n))P.floors.push({name:n,h:n==='F'?1.5:3.4,auto:true})});P.floors.sort((a,b)=>floorKey(a.name)-floorKey(b.name))}
 function detectFloors(name,ents){
   const titles=ents.texts.filter(t=>/平面|PLAN|結構|配筋|層|樓|FL/i.test(t.s)&&t.s.length<=40).sort((a,b)=>b.h-a.h);
   for(const t of titles.slice(0,6)){const f=parseFloors(t.s);if(f.length)return {floors:f,from:'圖名「'+t.s+'」'}}
@@ -806,7 +806,10 @@ function summary(P,bldg){
   const fl=floorsDesc(P),F={};fl.forEach(f=>F[f]={form:{版:0,梁:0,柱:0,牆:0,其他:0},conc:{版:0,梁:0,柱:0,牆:0,其他:0}});
   P.slabs.forEach(s=>{if(bldg&&s.bldg!==bldg)return;const c=slabCalc(s);if(!F[s.floor])return;F[s.floor].form.版+=c.real;F[s.floor].conc.版+=c.conc});
   P.members.forEach(m=>{if(bldg&&m.bldg!==bldg)return;const c=memCalc(m,P);if(!F[m.floor])return;const k=['梁','柱','牆'].includes(m.type)?m.type:'其他';F[m.floor].form[k]+=c.form;F[m.floor].conc[k]+=c.conc});
-  return {fl,F};
+  // 只列有數量的樓層（沒有任何數量時列出全部）
+  const has=f=>['form','conc'].some(k=>Object.values(F[f][k]).some(v=>Math.abs(v)>1e-9));
+  const fl2=fl.filter(has);
+  return {fl:fl2.length?fl2:fl,F};
 }
 
 /* =========================================================
@@ -953,6 +956,8 @@ function reconcile(P){
         if(!out.has(hb))out.set(hb,{L:0,lens:[],geo:[]});const o=out.get(hb);o.L=Math.round((o.L+l)*100)/100;o.lens.push(l);o.geo.push(g)})});
     out.forEach((o,hb)=>P.members.push(Object.assign({},w,{id:uid(),wauto:true,L:o.L,lens:o.lens,geo:o.geo,hb:hb==='P'?0:(hb||0),hp:hb==='P'?hPar:null,pos:hb==='P'?'女兒牆':hb?'至梁底':''})))});
     d.wdup=Math.round(d.wdup*100)/100;d.wout=Math.round(d.wout*100)/100});
+  {const used=new Set([...P.slabs.map(x=>x.floor),...P.members.map(x=>x.floor),...P.drawings.flatMap(d=>d.floors||[])]);
+    P.floors=P.floors.filter(f=>!f.auto||used.has(f.name))}
   bded.forEach((e,m)=>{const it=Object.entries(e).map(([t,l])=>[+t,r2(l)]).filter(([,l])=>l>=0.05);if(!it.length)return;
     m.ded=r2(it.reduce((a,[t,l])=>a+t*l,0));m.dedf=it.map(([t,l])=>fm(t)+'×'+fm(l)).join('+');m.wded=true});
 }
