@@ -457,7 +457,7 @@ const ROLE_RX={slab:/SLAB|SLB|版|樓板|FLOOR/i,col:/COL|柱/i,beam:/BEAM|BM|�
 function guessRoles(layers){const r={};Object.keys(layers).forEach(l=>{for(const k of ['slab','col','beam','wall'])if(ROLE_RX[k].test(l)){r[l]=k;break}});return r}
 const RX_SLAB=/^[A-Za-z+＋][A-Za-z0-9+\-']{0,5}$/;
 const RX_COL=/^[A-Z]{0,3}C[0-9A-Za-z\-]*$/i;
-const RX_BEAM=/^([A-Z]{0,2}[BGJ][0-9A-Za-z\-]*)\s*(?:[(（]?\s*(\d{2,3})\s*[xX×*]\s*(\d{2,3})(?:\s*\/\s*\d{2,3})?\s*[)）]?)?$/i;
+const RX_BEAM=/^([A-Z]{0,2}[BGJ][0-9A-Za-z\-]*)\s*(?:[(（]?\s*(\d{2,3})\s*[xX×*]\s*(\d{2,3})(?:\s*\/\s*(\d{2,3}))?\s*[)）]?)?$/i;
 const RX_WALL=/^([A-Z]{0,2}W[0-9A-Za-z\-]*)/i;
 
 /* 由梁、柱、牆圍出樓版每一格（淨面積，扣除開口與樓梯） */
@@ -552,8 +552,19 @@ function recognize(ents,d,P){
     return res;
   }
   const beams=pairs(segsOf('beam'),0.15,1.2);
-  beams.forEach(b=>{let best=null,bd=1.0/k;T.forEach(t=>{const mm=t.s.match(RX_BEAM);if(!mm)return;const dd=segDist([t.x,t.y],b.p0,b.p1);if(dd<bd){bd=dd;best=mm}});
-    b.code=best?best[1]:'B'; b.b=b.w; b.h=best&&best[3]?(+best[3])/100:(d.beamH||0.6); if(best&&best[2])b.b=(+best[2])/100;});
+  // 梁編號：以文字框中心、文字方向判斷（橫向文字只標橫梁、直向文字只標直梁），文字中心要落在梁跨內
+  const tBox=t=>{const r=(t.rot||0)*Math.PI/180,ux=Math.cos(r),uy=Math.sin(r),w=[...t.s].length*t.h*0.75;return {ux,uy,c:[t.x+ux*w/2-uy*t.h/2,t.y+uy*w/2+ux*t.h/2]}};
+  const RX_SIZE=/^[(（]\s*(\d{2,3})\s*[xX×*]\s*(\d{2,3})(?:\s*\/\s*(\d{2,3}))?\s*[)）]$/;
+  const sizeT=T.filter(t=>RX_SIZE.test(t.s)).map(t=>Object.assign({t,m:t.s.match(RX_SIZE)},tBox(t)));
+  const bLab=T.map(t=>{const mm=t.s.match(RX_BEAM);if(!mm)return null;const o=Object.assign({m:[...mm]},tBox(t));
+    // 編號與尺寸分開寫（FB2a　(40x140)）：取同方向、最近的尺寸文字
+    if(!mm[2]){let bs=null,bd=1.5/k;sizeT.forEach(z=>{if(Math.abs(z.ux*o.uy-z.uy*o.ux)>0.2)return;const dd=Math.hypot(z.c[0]-o.c[0],z.c[1]-o.c[1]);if(dd<bd){bd=dd;bs=z}});if(bs){o.m[2]=bs.m[1];o.m[3]=bs.m[2];o.m[4]=bs.m[3]}}
+    return o}).filter(Boolean);
+  beams.forEach(b=>{const dx=b.p1[0]-b.p0[0],dy=b.p1[1]-b.p0[1],L=Math.hypot(dx,dy)||1,ux=dx/L,uy=dy/L,mg=0.5/k;
+    const pick=strict=>{let best=null,bd=1.0/k;bLab.forEach(o=>{if(strict&&Math.abs(o.ux*uy-o.uy*ux)>0.2)return;const vx=o.c[0]-b.p0[0],vy=o.c[1]-b.p0[1],along=vx*ux+vy*uy;if(strict&&(along<-mg||along>L+mg))return;
+      const dd=strict?Math.abs(vx*uy-vy*ux):segDist(o.c,b.p0,b.p1);if(dd<bd){bd=dd;best=o.m}});return best};
+    const best=pick(true)||pick(false);
+    b.code=best?best[1]:'B'; b.b=b.w; b.h=best&&best[3]?(+best[3])/100:(d.beamH||0.6); if(best&&best[2])b.b=(+best[2])/100;b.h2=best&&best[4]?(+best[4])/100:null;});
   const walls=pairs(segsOf('wall'),0.08,0.6);
   walls.forEach(w=>{let best=null,bd=1.0/k;T.forEach(t=>{const mm=t.s.match(RX_WALL);if(!mm)return;const dd=segDist([t.x,t.y],w.p0,w.p1);if(dd<bd){bd=dd;best=mm}});w.code=best?best[1]:'W'});
   // 版
@@ -633,6 +644,12 @@ function recognize(ents,d,P){
   colsF.forEach(c=>{const bb=bbox(c.pts),m=0.2/k;c.jt=beams.filter(b=>[b.p0,b.p1].some(p=>p[0]>=bb[0]-m&&p[0]<=bb[2]+m&&p[1]>=bb[1]-m&&p[1]<=bb[3]+m)).map(b=>[b.b,b.h])});
   // 外框（基礎版、1 樓版混凝土用）：面積與外接矩形長寬
   const outl=bayInfo?bayInfo.outlines.map(O=>{const bb=bbox(O),A=r2(Math.abs(polyArea(O))*k*k),Lx=r2((bb[2]-bb[0])*k),Ly=r2((bb[3]-bb[1])*k);return {A,Lx,Ly,rect:Math.abs(A-Lx*Ly)<0.01*A,c:centroid(O)}}):[];
+  // 基礎層周邊地樑：梁的某一側（12m 內）再沒有平行且跨度重疊的梁，就是最外圍的梁
+  beams.forEach(b=>{const dx=b.p1[0]-b.p0[0],dy=b.p1[1]-b.p0[1],L=Math.hypot(dx,dy)||1,ux=dx/L,uy=dy/L,nx=-uy,ny=ux,R=12/k;
+    const side=sg=>beams.some(o=>{if(o===b)return false;const ox=o.p1[0]-o.p0[0],oy=o.p1[1]-o.p0[1],oL=Math.hypot(ox,oy)||1;if(Math.abs(ox/oL*uy-oy/oL*ux)>0.05)return false;
+      const m=[(o.p0[0]+o.p1[0])/2-b.p0[0],(o.p0[1]+o.p1[1])/2-b.p0[1]],dn=(m[0]*nx+m[1]*ny)*sg;if(dn<=0.05/k||dn>R)return false;
+      const a0=(o.p0[0]-b.p0[0])*ux+(o.p0[1]-b.p0[1])*uy,a1=(o.p1[0]-b.p0[0])*ux+(o.p1[1]-b.p0[1])*uy;return Math.min(L,Math.max(a0,a1))-Math.max(0,Math.min(a0,a1))>0.3/k});
+    b.perim=!side(1)||!side(-1)});
   return {slabs,cols:colsF,beams,walls,dropped,outl,bays:bayInfo?{n:slabPolys.length,stairs:bayInfo.stairs,opens:bayInfo.opens}:null};
 }
 
@@ -811,9 +828,11 @@ function memCalc(m,P){
     if(ded)ft+=m.dedf?` − (${m.dedf})`:` − ${fm(ded)}`;}
   else if(m.type==='梁'&&/^(F|基礎)$/.test(m.floor)){
     // 地樑：周邊地樑只組內側單面模、中間地樑雙面模；高度扣基礎版厚與 1 樓版厚；梁底不組模
-    const rt=raftT(P),t1=num(P.slabT,0.15),hs=r2(h-rt-t1),sd=m.edge?1:2;
-    // 混凝土：地樑寬×扣除後深度×長
-    form=sd*hs*L*n-ded;conc=b*hs*L*n;ft=`${sd}×(${fm(h)}−${fm(rt)}−${fm(t1)})×${fm(L)}${n!==1?'×'+n:''}`;ct=`${fm(b)}×${fm(hs)}×${fm(L)}${n!==1?'×'+n:''}`;if(ded)ft+=` − ${fm(ded)}`}
+    // 兩種梁深（如 50x155/195，兩側版面高低不同）：雙面模各側用各自的深度，混凝土取較深者
+    const rt=raftT(P),t1=num(P.slabT,0.15),h2=num(m.h2,0)||h,hs=r2(h-rt-t1),hs2=r2(h2-rt-t1),hc=Math.max(hs,hs2),sd=m.edge?1:2,nn=n!==1?'×'+n:'';
+    const fe=hh=>`(${fm(hh)}−${fm(rt)}−${fm(t1)})`;
+    form=(sd===2?hs+hs2:hs)*L*n-ded;conc=b*hc*L*n;
+    ft=(sd===2&&h2!==h?`(${fe(h)}+${fe(h2)})`:`${sd}×${fe(h)}`)+`×${fm(L)}${nn}`;ct=`${fm(b)}×${fm(hc)}×${fm(L)}${nn}`;if(ded)ft+=` − ${fm(ded)}`}
   else if(m.kind==='raft'||m.kind==='slab1'){
     // 基礎版：長×寬×基礎版厚；1 樓地板：1 樓面積×版厚。不組模
     const t=m.kind==='raft'?raftT(P):num(P.slabT,0.15),A=num(m.A,0);conc=A*t;ct=`${m.dim||fm(A)}×${fm(t)}`;ft='—'}
@@ -900,7 +919,8 @@ function applyRecog(P,d,R){
     const grp=new Map();
     if(!isF(f))R.cols.filter(on).forEach(c=>{const key=`${c.code}|${c.shape}|${c.b}|${c.h}|${c.pos||''}`;if(!grp.has(key))grp.set(key,{type:'柱',code:c.code,shape:c.shape,b:c.b,h:c.h,pos:c.pos||'',n:0,geo:[],jt:{}});const g=grp.get(key);g.n++;
       (c.jt||[]).forEach(([bw,bh])=>{const hs=r2(bh-tsD);if(hs<=0)return;const kk=fm(bw)+'×'+fm(hs);g.jt[kk]=(g.jt[kk]||0)+1});g.geo.push(c.c.map(v=>v*d.unit))});
-    R.beams.filter(on).forEach(b=>{const key=`B|${b.code}|${b.b}|${b.h}|${b.edge?1:0}`;if(!grp.has(key))grp.set(key,{type:'梁',code:b.code,b:b.b,h:b.h,edge:!!b.edge,pos:b.edge?(isF(f)?'周邊單面':'邊梁'):(isF(f)?'中間雙面':''),L:0,n:1,lens:[],geo:[]});const g=grp.get(key);g.L=Math.round((g.L+b.L)*100)/100;g.lens.push(b.L);g.geo.push([b.p0.map(v=>v*d.unit),b.p1.map(v=>v*d.unit)])});
+    // 同編號、同尺寸、同跨長的梁合為一列，以數量計（與圖面每跨一個標註對得起來）
+    R.beams.filter(on).forEach(b=>{if(isF(f)&&b.perim!=null)b.edge=b.perim;const key=`B|${b.code}|${b.b}|${b.h}|${b.h2}|${b.edge?1:0}|${b.L}`;if(!grp.has(key))grp.set(key,{type:'梁',code:b.code,b:b.b,h:b.h,h2:b.h2||null,edge:!!b.edge,pos:(b.edge?(isF(f)?'周邊單面':'邊梁'):(isF(f)?'中間雙面':''))+(b.h2?` 深${Math.round(b.h*100)}/${Math.round(b.h2*100)}`:''),L:b.L,n:0,lens:[],geo:[]});const g=grp.get(key);g.n++;g.lens.push(b.L);g.geo.push([b.p0.map(v=>v*d.unit),b.p1.map(v=>v*d.unit)])});
     if(isF(f)&&d.kind!=='arch')(R.outl||[]).filter(on).forEach((o,i)=>{const dim=o.rect?`${fm(o.Lx)}×${fm(o.Ly)}`:fm(o.A);
       P.members.push({id:uid(),bldg:d.bldg,floor:f,src:d.id,type:'其他',kind:'raft',code:'基礎版',A:o.A,dim,fx:'',cx:''});
       P.members.push({id:uid(),bldg:d.bldg,floor:f,src:d.id,type:'其他',kind:'slab1',code:'1樓地板',A:o.A,dim,fx:'',cx:''})});
@@ -1321,7 +1341,7 @@ function svgMember(m,p){
 }
 function memFormula(m,p){const c=memCalc(m,p);return `${m.type} ${m.code||''}（${m.floor} 層）
 模板   = ${c.ft} = ${f2(c.form)} m²
-混凝土 = ${c.ct} = ${f2(c.conc)} m³${m.lens&&m.lens.length>1?`\n各段長 L = ${m.lens.map(fm).join(' + ')} = ${fm(m.L)}`:''}`}
+混凝土 = ${c.ct} = ${f2(c.conc)} m³${m.lens&&m.lens.length>1&&Math.abs(m.lens.reduce((a,v)=>a+v,0)-m.L)<0.02?`\n各段長 L = ${m.lens.map(fm).join(' + ')} = ${fm(m.L)}`:''}`}
 function viewGuide(p){
   const demo={type:'柱',b:0.5,h:0.5,n:1,floor:p.floors[1]?.name||'1'},beam={type:'梁',b:0.3,h:0.6,L:5.5,n:1,floor:demo.floor},wall={type:'牆',b:0.2,L:5.5,n:1,open:1.2,floor:demo.floor};
   const slab={code:'S1',no:'—',orig:'5.7*4.75',seal:'',wall:'5.5*0.15',col:'0.1*0.15+0.1*0.15+0.1*0.1+0.1*0.1',t:0.15};
@@ -1509,7 +1529,7 @@ function download(name,data,type){const a=document.createElement('a');a.href=URL
 })();
 
 /* 新版本提示：網站版才有，按「更新」才重新載入 */
-const BUILD='20261026050625';
+const BUILD='20261026051950';
 function checkUpdate(){
   if(!BUILD||BUILD.startsWith('__')||!/^https?:/.test(location.protocol))return;
   fetch('version.json?t='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{
