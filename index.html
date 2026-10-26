@@ -897,6 +897,11 @@ function memCalc(m,P){
   return {form:r2(form),conc:r2(conc),ft,ct,bad:!isFinite(form)||!isFinite(conc),H,ts};
 }
 function floorsDesc(P){return P.floors.map(f=>f.name).slice().reverse()}
+function flRange(P,f){ // 每層範圍：本層樓板面到上一層樓板面（本層柱、牆＋上一層的梁、版）
+  const ns=P.floors.map(x=>x.name),i=ns.indexOf(f),L=n=>/FL$/i.test(n)?n:n+'FL',up=ns[i+1];
+  if(i<0)return '';if(i===0&&/^(F|B?F|基礎)$/i.test(f))return '基礎～'+(up?L(up):'');
+  return up?L(f)+'～'+L(up):L(f)+' 以上';
+}
 function sortSlabs(P,list){
   const fo=floorsDesc(P);
   return list.slice().sort((a,b)=>(P.bldgs.indexOf(a.bldg)-P.bldgs.indexOf(b.bldg))||(fo.indexOf(a.floor)-fo.indexOf(b.floor))||(+a.no-+b.no));
@@ -1325,13 +1330,14 @@ function viewSum(p){
   const K=['版','梁','柱','牆','其他'];
   const LS=num(p.loss,1.1);
   const tbl=(key,unit,title)=>{const tot={};K.forEach(k=>tot[k]=0);let all=0;const ls=key==='form'&&LS!==1;
-    const rows=fl.map(f=>{const r=F[f][key];const s=K.reduce((a,k)=>a+r[k],0);K.forEach(k=>tot[k]+=r[k]);all+=s;return `<tr><td>${esc(f)}</td>${K.map(k=>`<td class="r num">${f2(r[k])}</td>`).join('')}<td class="r num"><b>${f2(s)}</b></td>${ls?`<td class="r num"><b>${f2(s*LS)}</b></td>`:''}</tr>`}).join('');
+    const rows=fl.map(f=>{const r=F[f][key];const s=K.reduce((a,k)=>a+r[k],0);K.forEach(k=>tot[k]+=r[k]);all+=s;return `<tr><td>${esc(f)}</td><td class="muted small">${esc(flRange(p,f))}</td>${K.map(k=>`<td class="r num">${f2(r[k])}</td>`).join('')}<td class="r num"><b>${f2(s)}</b></td>${ls?`<td class="r num"><b>${f2(s*LS)}</b></td>`:''}</tr>`}).join('');
     return `<div class="panel stack"><div class="row" style="justify-content:space-between"><h3>${title}</h3><span class="muted small">單位 ${unit}</span></div>
-    <div class="scroll"><table class="data"><thead><tr><th>樓層</th>${K.map(k=>`<th class="r">${k}</th>`).join('')}<th class="r">樓層合計</th>${ls?`<th class="r">含損耗 ×${LS}</th>`:''}</tr></thead><tbody>${rows}<tr class="foot"><td>總計</td>${K.map(k=>`<td class="r num">${f2(tot[k])}</td>`).join('')}<td class="r num">${f2(all)}</td>${ls?`<td class="r num">${f2(all*LS)}</td>`:''}</tr></tbody></table></div></div>`};
+    <div class="scroll"><table class="data"><thead><tr><th>樓層</th><th>範圍</th>${K.map(k=>`<th class="r">${k}</th>`).join('')}<th class="r">樓層合計</th>${ls?`<th class="r">含損耗 ×${LS}</th>`:''}</tr></thead><tbody>${rows}<tr class="foot"><td>總計</td><td></td>${K.map(k=>`<td class="r num">${f2(tot[k])}</td>`).join('')}<td class="r num">${f2(all)}</td>${ls?`<td class="r num">${f2(all*LS)}</td>`:''}</tr></tbody></table></div></div>`};
   return `<div class="stack">
   <div class="row" style="justify-content:space-between"><div class="row"><label class="small muted" for="sumB">棟別</label><select id="sumB" data-filter="sumB"><option value="">全部棟別</option>${opts(p.bldgs,b)}</select></div>
   <div class="row"><button class="btn" data-act="copysum">複製兩張總表（貼到 Excel）</button>${standalone?'<button class="btn" data-act="print">列印</button>':''}</div></div>
   ${tbl('form','m²','模板分層數量統計總表')}${tbl('conc','m³','混凝土分層數量統計總表')}
+  <p class="muted small">每層範圍＝本層樓板面到上一層樓板面：本層的柱、牆，加上上一層樓板的梁（側模、底模）與版底模；例如 1 樓＝1FL～2FL，基礎層＝地樑、基礎版到 1FL 樓板。</p>
   <p class="muted small">版模板取「真實模板」；版混凝土 = 原始模板面積 × 版厚。梁混凝土取全梁深 b×h×淨跨，柱、牆高度算到版底（H − ts），三者不重複計算。</p></div>`;
 }
 /* ---------- 導引圖 ---------- */
@@ -1618,7 +1624,7 @@ document.addEventListener('click',async e=>{
   case 'dlgclose':$('#dlg').close();break;
   case 'copyrep':{const b=S.repB&&p.bldgs.includes(S.repB)?S.repB:p.bldgs[0];copyText(repTSV(p,b).map(r=>r.join('\t')).join('\n'));break}
   case 'csvrep':{const b=S.repB&&p.bldgs.includes(S.repB)?S.repB:p.bldgs[0];download(`${p.code}_模板報表_${b}.csv`,'﻿'+repTSV(p,b).map(r=>r.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(',')).join('\r\n'),'text/csv');break}
-  case 'copysum':{const {fl,F}=summary(p,S.sumB||'');const K=['版','梁','柱','牆','其他'];const LS=num(p.loss,1.1);const t=(key,title)=>{const ls=key==='form'&&LS!==1;const rows=[[title],['樓層',...K,'樓層合計',...(ls?['含損耗 ×'+LS]:[])]];const tot=K.map(()=>0);fl.forEach(f=>{const r=F[f][key];const v=K.map(k=>r[k]);v.forEach((x,i)=>tot[i]+=x);const sm=v.reduce((a,b)=>a+b,0);rows.push([f,...v.map(f2),f2(sm),...(ls?[f2(sm*LS)]:[])])});const all=tot.reduce((a,b)=>a+b,0);rows.push(['總計',...tot.map(f2),f2(all),...(ls?[f2(all*LS)]:[])]);return rows};
+  case 'copysum':{const {fl,F}=summary(p,S.sumB||'');const K=['版','梁','柱','牆','其他'];const LS=num(p.loss,1.1);const t=(key,title)=>{const ls=key==='form'&&LS!==1;const rows=[[title],['樓層','範圍',...K,'樓層合計',...(ls?['含損耗 ×'+LS]:[])]];const tot=K.map(()=>0);fl.forEach(f=>{const r=F[f][key];const v=K.map(k=>r[k]);v.forEach((x,i)=>tot[i]+=x);const sm=v.reduce((a,b)=>a+b,0);rows.push([f,flRange(p,f),...v.map(f2),f2(sm),...(ls?[f2(sm*LS)]:[])])});const all=tot.reduce((a,b)=>a+b,0);rows.push(['總計','',...tot.map(f2),f2(all),...(ls?[f2(all*LS)]:[])]);return rows};
     copyText([...t('form','模板分層數量統計總表 (m²)'),[],...t('conc','混凝土分層數量統計總表 (m³)')].map(r=>r.join('\t')).join('\n'));break}
   case 'print':window.print();break;
   case 'plotz':{S.plotZ=Math.max(1,Math.min(4,num(S.plotZ,1)*(el.dataset.k==='1'?1.5:1/1.5)));render();break}
@@ -1681,7 +1687,7 @@ function download(name,data,type){const a=document.createElement('a');a.href=URL
 })();
 
 /* 新版本提示：網站版才有，按「更新」才重新載入 */
-const BUILD='20261026053625';
+const BUILD='20261026055003';
 function checkUpdate(){
   if(!BUILD||BUILD.startsWith('__')||!/^https?:/.test(location.protocol))return;
   fetch('version.json?t='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{
