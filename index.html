@@ -172,11 +172,11 @@ table.rep tr.click:hover td{background:#eef1ff}
 .gcard svg{width:100%;height:auto;max-width:100%}
 .plot-wrap{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:8px;background:#fff;height:min(78vh,900px);min-height:320px;touch-action:none;cursor:grab}
 .plot-wrap svg{width:100%;height:100%;display:block}
-.plot-tbl td.id{font-weight:700;color:#c05621;white-space:nowrap}
+.plot-tbl td.id{font-weight:700;color:#c05621;white-space:normal;word-break:keep-all;width:1%;min-width:7.5em}
 .plot-tbl{border-collapse:collapse;font-size:12.5px;width:100%;background:var(--surface)}
 .plot-tbl th,.plot-tbl td{border:1px solid var(--line);padding:4px 6px;vertical-align:top}
 .plot-tbl th{background:var(--surface2);white-space:nowrap}
-.plot-tbl td.f{font-family:var(--f-num);overflow-wrap:anywhere}.plot-tbl td.n{text-align:right;font-family:var(--f-num);white-space:nowrap}
+.plot-tbl td.f{font-family:var(--f-num);white-space:nowrap}.plot-tbl td{white-space:nowrap}.plot-tbl td.n{text-align:right;font-family:var(--f-num);white-space:nowrap}
 .plot-tbl tr.sub td{font-weight:700;background:var(--surface2)}
 #printArea{display:none}
 /* 產生 PDF 用的暫存版面（畫面外） */
@@ -2202,7 +2202,7 @@ function download(name,data,type){const a=document.createElement('a');a.href=URL
 })();
 
 /* 新版本提示：網站版才有，按「更新」才重新載入 */
-const BUILD='20261026203402';
+const BUILD='20261026222556';
 function checkUpdate(){
   if(!BUILD||BUILD.startsWith('__')||!/^https?:/.test(location.protocol))return;
   fetch('version.json?t='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{
