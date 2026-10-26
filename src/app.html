@@ -665,7 +665,10 @@ function recognize(ents,d,P){
   // 柱的梁柱接頭：接到柱的每支梁，扣 梁寬×(梁深−版厚)
   colsF.forEach(c=>{const bb=bbox(c.pts),m=0.2/k;c.jt=beams.filter(b=>[b.p0,b.p1].some(p=>p[0]>=bb[0]-m&&p[0]<=bb[2]+m&&p[1]>=bb[1]-m&&p[1]<=bb[3]+m)).map(b=>[b.b,b.h])});
   // 外框（基礎版、1 樓版混凝土用）：面積與外接矩形長寬
-  const outl=bayInfo?bayInfo.outlines.map(O=>{const bb=bbox(O),A=r2(Math.abs(polyArea(O))*k*k),Lx=r2((bb[2]-bb[0])*k),Ly=r2((bb[3]-bb[1])*k);return {A,Lx,Ly,rect:Math.abs(A-Lx*Ly)<0.01*A,c:centroid(O)}}):[];
+  const outl=bayInfo?bayInfo.outlines.map(O=>{const bb=bbox(O),A=r2(Math.abs(polyArea(O))*k*k),Lx=r2((bb[2]-bb[0])*k),Ly=r2((bb[3]-bb[1])*k);// 地樑外緣範圍（開挖、1 樓版用；不含懸臂版）
+    let gx0=1e18,gy0=1e18,gx1=-1e18,gy1=-1e18;beams.forEach(b=>{const m=[(b.p0[0]+b.p1[0])/2,(b.p0[1]+b.p1[1])/2];if(!inPoly(m,O))return;const hw=(b.w||0)/2/k;[b.p0,b.p1].forEach(q=>{gx0=Math.min(gx0,q[0]-hw);gx1=Math.max(gx1,q[0]+hw);gy0=Math.min(gy0,q[1]-hw);gy1=Math.max(gy1,q[1]+hw)})});
+    const Bx=gx1>gx0?r2((gx1-gx0)*k):null,By=gy1>gy0?r2((gy1-gy0)*k):null;
+    return {A,Lx,Ly,Bx,By,rect:Math.abs(A-Lx*Ly)<0.01*A,c:centroid(O)}}):[];
   // 基礎層周邊地樑：梁的某一側（12m 內）再沒有平行且跨度重疊的梁，就是最外圍的梁
   beams.forEach(b=>{const dx=b.p1[0]-b.p0[0],dy=b.p1[1]-b.p0[1],L=Math.hypot(dx,dy)||1,ux=dx/L,uy=dy/L,nx=-uy,ny=ux,R=12/k;
     const side=sg=>beams.some(o=>{if(o===b)return false;const ox=o.p1[0]-o.p0[0],oy=o.p1[1]-o.p0[1],oL=Math.hypot(ox,oy)||1;if(Math.abs(ox/oL*uy-oy/oL*ux)>0.05)return false;
@@ -1042,9 +1045,11 @@ function applyRecog(P,d,R){
     R.beams.filter(on).forEach(b=>{if(isF(f)&&b.perim!=null)b.edge=b.perim;const fc=isF(f)?(b.edge?[b.pitL?.[b.outSide===1?1:0]||0]:(b.pitL||[0,0])):null,pk=fc&&b.dP?fc.map(x=>r2(x)):null;
       const ns=!isF(f)&&b.noSl&&b.noSl[0]+b.noSl[1]>=0.05?b.noSl.slice().sort((x,y)=>y-x):null;const key=`B|${b.code}|${b.b}|${b.h}|${b.h2}|${b.edge?1:0}|${b.L}|${pk?pk.join(','):''}|${ns?ns.join(','):''}`;if(!grp.has(key))grp.set(key,{type:'梁',code:b.code,b:b.b,h:b.h,h2:b.h2||null,...(ns?{ns}:{}),...(pk?{pit:pk,dP:b.dP,hN:b.hN}:{}),edge:!!b.edge,pos:(b.edge?(isF(f)?'周邊單面':'邊梁'):(isF(f)?'中間雙面':''))+(b.h2?` 深${Math.round(b.h*100)}/${Math.round(b.h2*100)}`:''),L:b.L,n:0,lens:[],geo:[]});const g=grp.get(key);g.n++;g.lens.push(b.L);g.geo.push([b.p0.map(v=>v*d.unit),b.p1.map(v=>v*d.unit)])});
     if(isF(f)&&d.kind!=='arch')(R.outl||[]).filter(on).forEach((o,i)=>{const dim=o.rect?`${fm(o.Lx)}×${fm(o.Ly)}`:fm(o.A);
-      P.members.push({id:uid(),bldg:d.bldg,floor:f,src:d.id,type:'其他',kind:'raft',code:'基礎版',A:o.A,dim,fx:'',cx:''});
+      // 開挖範圍 = 地樑外緣長、寬各加 20cm：基礎版混凝土；1 樓地板取地樑外緣範圍，超出的懸臂版（FCS）另列
+      const ex=o.Bx&&o.By,eA=ex?r2((o.Bx+0.2)*(o.By+0.2)):o.A,eD=ex?`(${fm(o.Bx)}+0.2)×(${fm(o.By)}+0.2)`:dim,sA=ex?r2(o.Bx*o.By):o.A,sD=ex?`${fm(o.Bx)}×${fm(o.By)}`:dim;
+      P.members.push({id:uid(),bldg:d.bldg,floor:f,src:d.id,type:'其他',kind:'raft',code:'基礎版',pos:ex?'開挖範圍':'',A:eA,dim:eD,fx:'',cx:''});
       const pz=(R.pits||[]).filter(on),op=r2(pz.reduce((a,q)=>a+q.Ai,0));
-      P.members.push({id:uid(),bldg:d.bldg,floor:f,src:d.id,type:'其他',kind:'slab1',code:'1樓地板',A:o.A,dim,open:op||null,fx:'',cx:''})});
+      P.members.push({id:uid(),bldg:d.bldg,floor:f,src:d.id,type:'其他',kind:'slab1',code:'1樓地板',A:sA,dim:sD,open:op||null,fx:'',cx:''})});
     if(isF(f)&&d.kind!=='arch')(R.pits||[]).filter(on).forEach(q=>P.members.push({id:uid(),bldg:d.bldg,floor:f,src:d.id,type:'其他',kind:'pit',code:'電梯坑加深區',pos:q.n>1?`${q.n} 坑相連`:'',W:q.W,H:q.H,Ai:q.Ai,d:q.d,geo:[q.bb],inner:q.inner,fx:'',cx:''}));
     R.walls.filter(on).forEach(w=>{const key=`W|${w.code}|${w.w}`;if(!grp.has(key))grp.set(key,{type:'牆',code:w.code,b:w.w,L:0,n:1,lens:[],geo:[]});const g=grp.get(key);g.L=Math.round((g.L+w.L)*100)/100;g.lens.push(w.L);g.geo.push([w.p0.map(v=>v*d.unit),w.p1.map(v=>v*d.unit)])});
     grp.forEach(g=>{if(g.jt){const e=Object.entries(g.jt);g.ded=r2(e.reduce((a,[kk,n])=>{const [x,y]=kk.split('×').map(Number);return a+x*y*n},0))||null;g.dedf=e.map(([kk,n])=>kk+'×'+n).join('+');delete g.jt}
@@ -1554,7 +1559,7 @@ function plotSVG(p,f,b,opt={}){
 }
 function plotTable(p,f,b){
   const D=plotData(p,f,b);let tf=0,tc=0;
-  const rows=[...D.sl.map(s=>{const c=slabCalc(s);tf+=c.real;tc+=c.conc;return [D.ids.get(s)||'',`${s.code}-${s.no}`,s.noForm?'直接落地灌漿，不組模':`原始 ${s.orig||0}　封模 ${s.seal||0}　扣牆 ${s.wall||0}　扣柱 ${s.col||0}`,c.real,s.noConc?'已計入 1樓地板':`${f2(c.o)}×${fm(c.t)}`,c.conc]}),
+  const rows=[...D.sl.map(s=>{const c=slabCalc(s);tf+=c.real;tc+=c.conc;return [D.ids.get(s)||'',`${s.code}-${s.no}`,s.noForm?'1樓版超出開挖範圍，直接落地灌漿，不組模':`原始 ${s.orig||0}　封模 ${s.seal||0}　扣牆 ${s.wall||0}　扣柱 ${s.col||0}`,c.real,s.noConc?'已計入 1樓地板':`${f2(c.o)}×${fm(c.t)}`,c.conc]}),
     ...D.ms.map(m=>{const c=memCalc(m,p);tf+=c.form;tc+=c.conc;return [D.ids.get(m)||'',`${m.type==='其他'||m.kind==='stair'?'':m.type+' '}${m.code}${m.pos?'（'+m.pos+'）':''}${num(m.n,1)!==1?' ×'+num(m.n,1):''}`,c.ft,c.form,c.ct,c.conc]})];
   const io=x=>{const m=String(x).match(/^(\D+)(\d+)$/);return m?['版柱梁牆梯項'.indexOf(m[1])*1e4+ +m[2]]:[9e9]};rows.sort((a,b)=>io(a[0])-io(b[0]));
   return `<table class="plot-tbl"><thead><tr><th>編號</th><th>構件</th><th>模板算式</th><th>模板 m²</th><th>混凝土算式</th><th>混凝土 m³</th></tr></thead><tbody>${rows.map(r=>`<tr><td class="id">${esc(r[0])}</td><td>${esc(r[1])}</td><td class="f">${esc(r[2])}</td><td class="n">${f2(r[3])}</td><td class="f">${esc(r[4])}</td><td class="n">${f2(r[5])}</td></tr>`).join('')}
