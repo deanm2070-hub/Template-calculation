@@ -44,6 +44,10 @@ button,input,select,textarea{font:inherit;color:inherit}
 #splash.out{opacity:0;visibility:hidden}
 html.sp,html.sp body{background:#1f2f97}
 #dots{position:absolute;inset:0;width:100%;height:100%}
+/* 標題疊在背景圖原本標題的位置（依圖的縮放比例由 JS 設定位置與字級） */
+.sp-tt{position:absolute;left:0;right:0;text-align:center;pointer-events:none;margin:0;white-space:nowrap}
+.sp-title{font-family:var(--f-display);font-weight:900;color:#fff;letter-spacing:.08em;line-height:1;text-shadow:0 4px 18px rgba(0,0,20,.5)}
+.sp-sub{font-family:var(--f-display);font-weight:700;color:rgba(225,231,255,.85);letter-spacing:.32em;line-height:1}
 .sp-hint{position:absolute;left:0;right:0;bottom:calc(100lvh - 100dvh + max(36px,env(safe-area-inset-bottom,0px)));text-align:center;color:rgba(235,240,255,.9);letter-spacing:.25em;font-size:13px;animation:pulse 2.4s ease-in-out infinite;pointer-events:none}
 @keyframes pulse{50%{opacity:.35}}
 @media (prefers-reduced-motion: reduce){.sp-hint{animation:none}}
@@ -221,6 +225,8 @@ dialog::backdrop{background:rgba(5,8,30,.55)}
 
 <div id="splash" role="button" tabindex="0" aria-label="進入築本模板工程計算">
   <canvas id="dots"></canvas>
+  <h1 class="sp-tt sp-title" id="spT">築本模板工程計算</h1>
+  <p class="sp-tt sp-sub" id="spS">ZHUBEN FORMWORK &amp; CONCRETE ESTIMATION</p>
   <div class="sp-hint">點擊任意處進入</div>
 </div>
 
@@ -2090,6 +2096,9 @@ function download(name,data,type){const a=document.createElement('a');a.href=URL
     const sc=Math.max(W/IW,H/IH),ox=(W-IW*sc)/2,oy=(H-IH*sc)/2;
     dots=[];for(let j=0;j<13;j++)for(let i=0;i<7;i++){const ix=72+176.5*i,iy=155.5+177*j;if(hide(ix,iy))continue;const x=ox+ix*sc,y=oy+iy*sc;if(x<-20||y<-20||x>W+20||y>H+20)continue;
       dots.push({x,y,r:15*sc,f:0,fd:0})}
+    // 標題中心在圖上 y≈1437、字高約 82；副標 y≈1559
+    const t=$('#spT'),u=$('#spS'),fs=Math.min(84*sc,(W-32)/8.8),fu=Math.min(22*sc,(W-32)/(38*0.92));
+    t.style.fontSize=fs+'px';t.style.top=(oy+1437*sc-fs/2)+'px';u.style.fontSize=fu+'px';u.style.top=(oy+1559*sc-fu/2)+'px';
   }
   function frame(t){
     if(!alive)return;g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,W,H);
