@@ -1021,7 +1021,7 @@ function makeSample(){
   const ents=parseDXF(buf);
   const d={id:uid(),name:'範例_二三層結構平面.dxf',floors:[],bldg:'A',unit:0.001,roles:{},layerCount:Object.keys(ents.layers).length,ext:ents.ext,ver:ents.ver};
   p.drawings.push(d);entPut(d.id,ents);
-  autoProcess(p,d,ents);
+  autoProcess(p,d,ents);p.calcVer=calcVer();
   // 手動範例：基礎版與樓梯
   p.slabs.push({id:uid(),bldg:'A',floor:'F',code:'FS',no:nextNo(p),t:0.3,orig:'12.5*10.5',seal:'(12.5+10.5)*2*0.3',wall:'',col:'',src:'man'});
   p.members.push({id:uid(),bldg:'A',floor:'1',type:'其他',code:'樓梯',fx:'1.2*4.5*2+0.18*4.5*2*12/12',cx:'1.2*4.5*0.15*2',src:'man'});
@@ -1177,6 +1177,18 @@ function render(){
   {const tb=main.querySelector('.tabs');if(tb){tb.scrollLeft=tl;const on=tb.querySelector('[aria-selected="true"]');if(on){const r=on.getBoundingClientRect(),R=tb.getBoundingClientRect();if(r.left<R.left)tb.scrollLeft-=R.left-r.left+8;else if(r.right>R.right)tb.scrollLeft+=r.right-R.right+8}}}
   afterRender();
   if(S.tab==='draw')mountCad();
+  if(p.drawings.length&&p.calcVer!==calcVer()&&!recalcAll.busy)recalcAll(p);
+}
+/* 計算規則版本：App 更新後，用手機裡存的圖檔依新規則重算（等同重新匯入，手動構件保留） */
+const calcVer=()=>{try{return BUILD&&!BUILD.startsWith('__')?BUILD:'r22'}catch(e){return 'r22'}};
+async function recalcAll(p){
+  if(recalcAll.busy)return;recalcAll.busy=true;let n=0;
+  try{toast('正在依新規則重新計算圖檔…');await new Promise(r=>setTimeout(r,60));
+    for(const d of p.drawings.slice()){const ents=await entGet(d.id);if(!ents)continue;autoProcess(p,d,ents);n++}
+    p.calcVer=calcVer();saveAll();
+  }catch(e){toast('重新計算失敗：'+(e.message||e))}
+  finally{recalcAll.busy=false}
+  if(n){render();toast(`已依新規則重新計算 ${n} 張圖`)}
 }
 function afterRender(){
   // 卡片式表格：把表頭文字放到每格的 data-label
@@ -1226,6 +1238,7 @@ function viewDraw(p){
       <h3>匯入圖檔</h3>
       <label class="btn pri" for="impFile">選擇 DWG / DXF 檔</label><input id="impFile" type="file" accept=".dxf,.dwg" multiple hidden>
       <p class="muted small" style="margin:0">匯入後軟體會自動判斷樓層、圖層，直接算出模板面積與混凝土體積。可一次選多個檔案。</p>
+      ${p.drawings.length?'<button class="btn" data-act="recalc">用目前規則重新計算全部圖檔</button><p class="muted small" style="margin:0">App 更新後會自動重算一次，不必重新匯入；手動新增的構件會保留。</p>':''}
     </div>
     <div class="dlist">${p.drawings.length?p.drawings.map(x=>`<button class="ditem" data-act="dwg" data-id="${x.id}" aria-current="${x.id===S.dwg}"><b>${esc(x.name)}</b><span class="muted small">樓層 ${esc(x.floors.join('、')||'—')}</span>${x.recog?`<span class="small">${stat(x)}</span>`:''}</button>`).join(''):'<div class="empty small">尚未匯入圖檔</div>'}</div>
   </aside>
@@ -1707,7 +1720,7 @@ async function importFiles(files){
       const R=autoProcess(p,d,ents);tot.n++;tot.s+=R.slabs.length*d.floors.length;tot.c+=R.cols.length;tot.b+=R.beams.length;tot.w+=R.walls.length;
     }catch(e){openDlg(isDwg?'無法讀取 DWG':'無法讀取 DXF',isDwg?`<p>「${esc(f.name)}」（${esc(DWGVER[head]||head)}）解析失敗：${esc(e.message||e)}。</p><p class="muted small">內建的 LibreDWG 引擎支援 R13 到 AutoCAD 2018 以後的 DWG，少數含特殊物件的檔案可能失敗。遇到時可在 AutoCAD 另存為 DXF 再匯入。</p>`:`<p>「${esc(f.name)}」讀取失敗：${esc(e.message)}。請確認是 ASCII 格式的 DXF（二進位 DXF 請改存 ASCII）。</p>`)}
   }
-  saveAll();render();
+  p.calcVer=calcVer();saveAll();render();
   if(tot.n)toast(`已計算 ${tot.n} 張圖：版 ${tot.s} 筆、柱 ${tot.c}、梁段 ${tot.b}、牆段 ${tot.w}`);
 }
 document.addEventListener('submit',e=>{
@@ -1736,6 +1749,7 @@ document.addEventListener('click',async e=>{
   const el=e.target.closest('[data-act]');if(!el)return;const a=el.dataset.act,p=P();
   switch(a){
   case 'home':if(history.state?.v==='project')history.back();else{S.cur=null;go('projects')}break;
+  case 'recalc':recalcAll(p);break;
   case 'open':S.cur=el.dataset.id;S.tab='draw';S.dwg=null;S.floorFilter='';S.bldgFilter='';V.hi=null;go('project');break;
   case 'sample':{const s=makeSample();S.projects.push(s);S.cur=s.id;S.tab='draw';S.dwg=null;saveAll();go('project');break}
   case 'tab':S.tab=el.dataset.k;render();window.scrollTo(0,0);break;
@@ -1824,7 +1838,7 @@ function download(name,data,type){const a=document.createElement('a');a.href=URL
 })();
 
 /* 新版本提示：網站版才有，按「更新」才重新載入 */
-const BUILD='20261026063738';
+const BUILD='20261026071745';
 function checkUpdate(){
   if(!BUILD||BUILD.startsWith('__')||!/^https?:/.test(location.protocol))return;
   fetch('version.json?t='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{
