@@ -656,7 +656,7 @@ function recognize(ents,d,P){
     const A=Math.abs(polyArea(pts))*k*k;
     let code='S',best=null,bd=Infinity,t=d.slabT||P.slabT||0.15; const c=centroid(pts);
     T.forEach(tx=>{if(!inPoly([tx.x,tx.y],pts))return;const tm=tx.s.match(/^t\s*[=＝]\s*(\d+(?:\.\d+)?)/i);if(tm){const v=+tm[1];t=v>=1?v/100:v;return}
-      const first=tx.s.split(/\s+/)[0];if(!RX_SLAB.test(first)||/^[A-Za-z]{0,2}[BGJbgj]\d/.test(first)||RX_COL.test(first)&&!/S/i.test(first))return;const dd=Math.hypot(tx.x-c[0],tx.y-c[1]);if(dd<bd){bd=dd;best=first}
+      const first=tx.s.split(/\s+/)[0];if(!RX_SLAB.test(first)||/^(UP|DN)/i.test(first)||/^[A-Za-z]{0,2}[BGJbgj]\d/.test(first)||RX_COL.test(first)&&!/S/i.test(first))return;const dd=Math.hypot(tx.x-c[0],tx.y-c[1]);if(dd<bd){bd=dd;best=first}
       const tm2=tx.s.match(/t\s*[=＝]\s*(\d+(?:\.\d+)?)/i);if(tm2){const v=+tm2[1];t=v>=1?v/100:v}});
     if(best)code=best;
     {const sc=(d.slabSch||[]).find(x=>x.codes.includes(String(code).toUpperCase()));if(sc)t=sc.t}
@@ -803,7 +803,7 @@ function parseFloors(str){
   // 夾層：「一層夾層」「1F夾層」「1MFL」→ 1M（排在 1 樓與 2 樓之間）
   str=str.replace(new RegExp('(?:'+N+'\\s*(?:F|層|樓)?\\s*)?夾層','g'),(m,n)=>{const v=n?cnum(n):1;if(v)out.add(v+'M');return ' '});
   str=str.replace(/\b(\d+)MF?L\b/g,(m,n)=>{out.add(+n+'M');return ' '});
-  if(/基礎|FOUNDATION/.test(str))out.add('F');
+  if(/基礎|FOUNDATION|筏基/.test(str))out.add('F');
   let m;const reB=new RegExp('(?:\\bB|地下)'+N+'(?:F|FL|層|樓)?','g');while((m=reB.exec(str))){const n=cnum(m[1]);if(n)out.add('B'+n)}
   const s2=str.replace(/(?:\bB|地下)(\d+|[一二三四五六七八九十]{1,3})(?:F|FL|層|樓)?/g,' ').replace(/\bR\d*F?\b/g,' ');
   const reR=new RegExp(N+'\\s*(?:F|FL|層|樓)?\\s*[~～至\\-－到]\\s*'+N+'\\s*(?:F|FL|層|樓)','g');
@@ -838,6 +838,8 @@ function planStory(s,all){
   const tw=all.map(t=>t.match(RT)).filter(Boolean).map(m=>cnum(m[1])).filter(n=>n>0);
   const nums=all.flatMap(t=>RT.test(t)||/屋頂/.test(t)?[]:titleFloors(t)).filter(f=>/^\d+$/.test(f)).map(Number);const top=nums.length?String(Math.max(...nums)):'R1';
   const m=s.match(RT);if(m){const n=cnum(m[1]);return [n===1?top:'R'+(n-1)]}
+  // 另有一層（基礎）結構平面時，筏基層平面的地樑與它重複，不另計
+  if(/筏基/.test(s)&&all.some(t=>t!==s&&!/筏基/.test(t)&&planStory(t,all).includes('F')))return [];
   if(/屋頂|\bRF\b|^R\d*F/i.test(s))return [tw.length?'R'+Math.max(...tw):top];
   const lv=titleFloors(s);const allLv=all.flatMap(t=>titleFloors(t));return [...new Set(lv.map(f=>levelBelow(f,allLv)))];
 }
@@ -858,7 +860,9 @@ function findPlanTitles(ents){
 }
 function assignPlans(R,titles,k){
   const slack=0.5/k;
-  const pick=(ex,ey)=>{let b=null,bs=Infinity;titles.forEach(t=>{const dy=ey-t.y;if(dy<-slack)return;const sc=Math.max(0,dy)+2*Math.abs(ex-t.cx);if(sc<bs){bs=sc;b=t}});return b};
+  // 離所有圖名都太遠（超過相鄰兩張圖間距的 0.7 倍）的圖元，例如圖例、樣板區：不屬於任何平面圖
+  const xs=[...new Set(titles.map(t=>Math.round(t.cx)))].sort((a,b)=>a-b),gx=xs.slice(1).map((x,i)=>x-xs[i]).filter(g=>g>2/k).sort((a,b)=>a-b),lim=gx.length>=2?gx[0]*0.7:Infinity;
+  const pick=(ex,ey)=>{let b=null,bs=Infinity;titles.forEach(t=>{const dy=ey-t.y;if(dy<-slack||Math.abs(ex-t.cx)>lim)return;const sc=Math.max(0,dy)+2*Math.abs(ex-t.cx);if(sc<bs){bs=sc;b=t}});return b};
   const set=(e,x,y)=>{const t=pick(x,y);e.fl=t?t.fl:null;e._plan=t?t.s:''};
   R.slabs.forEach(s=>{const c=centroid(s.pts);set(s,c[0],c[1])});
   R.cols.forEach(c=>set(c,c.c[0],c.c[1]));
@@ -894,6 +898,7 @@ function autoProcess(P,d,ents){
   const R=recognize(ents,d,P);
   if(titles.length>=2||(titles.length===1&&!det.floors.length)){assignPlans(R,titles,d.unit);d.plans=titles.map(t=>t.s);d.floorFrom='依各平面圖圖名分層（'+titles.length+' 張）'+(st?'；結構平面圖歸入下方樓層':'');
     [R.slabs,R.cols,R.beams,R.walls,R.outl,R.pits].forEach(a=>a.forEach(e=>{if(e._plan)e.fl=st?planStory(e._plan,tStr):archStory(e._plan,tStr)}));
+    {const keep=a=>a.filter(e=>!e._plan||e.fl.length);R.slabs=keep(R.slabs);R.cols=keep(R.cols);R.beams=keep(R.beams);R.walls=keep(R.walls);R.outl=keep(R.outl||[]);R.pits=keep(R.pits||[])}
     d.planAt={};titles.forEach(t=>(st?planStory(t.s,tStr):archStory(t.s,tStr)).forEach(f=>{if(!d.planAt[f])d.planAt[f]=[t.cx*d.unit,t.y*d.unit]}))}
   d.tabN=ents.tabs?applyTabs(R,ents.tabs,d):0;
   d.openSch=readOpenSch(ents,d.unit);R.wfill=wallFills(R,ents,Object.assign({},...P.drawings.filter(x=>x.kind==='sched').map(x=>x.openSch||{}),d.openSch),d.unit);
