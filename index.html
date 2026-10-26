@@ -586,7 +586,7 @@ function slabBays(ents,k,polys,cols,beams,walls){
       const a=[p0[0]-ux*e,p0[1]-uy*e],b=[p1[0]+ux*e,p1[1]+uy*e];return [[a[0]+nx,a[1]+ny],[b[0]+nx,b[1]+ny],[b[0]-nx,b[1]-ny],[a[0]-nx,a[1]-ny]]};
     const near=pt=>pt[0]>=bb[0]-1/k&&pt[0]<=bb[2]+1/k&&pt[1]>=bb[1]-1/k&&pt[1]<=bb[3]+1/k;
     beams.forEach(b=>{if(!near(b.p0)&&!near(b.p1))return;const w=(b.w||0.3)/k;fill(rectOf(b.p0,b.p1,w,w/2),2,1)});
-    walls.forEach(w=>{if(!near(w.p0)&&!near(w.p1))return;const ww=(w.w||0.15)/k;fill(rectOf(w.p0,w.p1,ww,ww/2),2,1)});
+    // 牆不分隔版格：版是樑、柱圍出來的，隔間牆（建築外參）畫在結構圖上也不該把一格切成兩塊
     cols.forEach(c=>{if(near(c.c))fill(c.pts,2,1)});
     holes.forEach(q=>{if(inPoly(centroid(q),O)){fill(q,2,1);opens++}});
     // 連通區域
@@ -768,7 +768,9 @@ function recognize(ents,d,P){
     return {A,Lx,Ly,Bx,By,rect:Math.abs(A-Lx*Ly)<0.01*A,c:centroid(O),...gbOutline(beams,cols,O,k)}}):[];
   // 筏基範圍（地樑外緣圍起來的區域）：樑的哪一側在範圍外就是周邊樑；版在範圍外（室外地坪）另記
   const rafts=outl.map(o=>o.inside).filter(Boolean);
-  slabs.forEach(s=>{if(rafts.length)s.inRaft=rafts.some(r=>r(centroid(s.pts)))});
+  // 版格有一半以上面積在筏基範圍內才算範圍內（環繞建築的室外地坪頂點平均會落在建築內，不能用頂點平均）
+  const fracIn=(pts,fn)=>{const bb=bbox(pts);let n=0,m=0;for(let i=0;i<24;i++)for(let j=0;j<24;j++){const q=[bb[0]+(i+0.5)/24*(bb[2]-bb[0]),bb[1]+(j+0.5)/24*(bb[3]-bb[1])];if(!inPoly(q,pts))continue;n++;if(fn(q))m++}return n?m/n:0};
+  slabs.forEach(s=>{if(rafts.length)s.inRaft=fracIn(s.pts,q=>rafts.some(r=>r(q)))>=0.5});
   // 基礎層周邊地樑：樑的某一側（12m 內）再沒有平行且跨度重疊的樑，就是最外圍的樑
   beams.forEach(b=>{const dx=b.p1[0]-b.p0[0],dy=b.p1[1]-b.p0[1],L=Math.hypot(dx,dy)||1,ux=dx/L,uy=dy/L,nx=-uy,ny=ux,R=12/k;
     const side=sg=>beams.some(o=>{if(o===b)return false;const ox=o.p1[0]-o.p0[0],oy=o.p1[1]-o.p0[1],oL=Math.hypot(ox,oy)||1;if(Math.abs(ox/oL*uy-oy/oL*ux)>0.05)return false;
@@ -2232,7 +2234,7 @@ function download(name,data,type){const a=document.createElement('a');a.href=URL
 })();
 
 /* 新版本提示：網站版才有，按「更新」才重新載入 */
-const BUILD='20261026155433';
+const BUILD='20261026160402';
 function checkUpdate(){
   if(!BUILD||BUILD.startsWith('__')||!/^https?:/.test(location.protocol))return;
   fetch('version.json?t='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{
