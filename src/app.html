@@ -38,7 +38,8 @@ button,input,select,textarea{font:inherit;color:inherit}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
 /* ---------- 首頁 ---------- */
-#splash{position:fixed;top:0;left:0;right:0;bottom:auto;height:100vh;height:100lvh;min-height:100%;z-index:50;cursor:pointer;overflow:hidden;
+/* 主畫面 App（狀態列透明）時 100lvh 不含上方狀態列，要再加上 safe-area 高度，圖才會鋪到最底 */
+#splash{position:fixed;top:0;left:0;right:0;bottom:auto;height:100vh;height:calc(100lvh + env(safe-area-inset-top,0px));min-height:100%;z-index:50;cursor:pointer;overflow:hidden;
   background:#1f2f97 url(data:image/webp;base64,__SPLASHBG__) center/cover no-repeat;
   transition:opacity .7s ease, visibility .7s}
 #splash.out{opacity:0;visibility:hidden}
@@ -48,7 +49,7 @@ html.sp,html.sp body{background:#1f2f97}
 .sp-tt{position:absolute;left:0;right:0;text-align:center;pointer-events:none;margin:0;white-space:nowrap}
 .sp-title{font-family:var(--f-display);font-weight:900;color:#fff;letter-spacing:.08em;line-height:1;text-shadow:0 4px 18px rgba(0,0,20,.5)}
 .sp-sub{font-family:var(--f-display);font-weight:700;color:rgba(225,231,255,.85);letter-spacing:.32em;line-height:1}
-.sp-hint{position:absolute;left:0;right:0;bottom:calc(100lvh - 100dvh + max(36px,env(safe-area-inset-bottom,0px)));text-align:center;color:rgba(235,240,255,.9);letter-spacing:.25em;font-size:13px;animation:pulse 2.4s ease-in-out infinite;pointer-events:none}
+.sp-hint{position:absolute;left:0;right:0;bottom:calc(100lvh - 100dvh + env(safe-area-inset-top,0px) + max(36px,env(safe-area-inset-bottom,0px)));text-align:center;color:rgba(235,240,255,.9);letter-spacing:.25em;font-size:13px;animation:pulse 2.4s ease-in-out infinite;pointer-events:none}
 @keyframes pulse{50%{opacity:.35}}
 @media (prefers-reduced-motion: reduce){.sp-hint{animation:none}}
 
