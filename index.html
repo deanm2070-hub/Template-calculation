@@ -1420,7 +1420,7 @@ function viewRep(p){
   });
   return `<div class="stack">
   <div class="row" style="justify-content:space-between"><div class="row"><label class="small muted" for="repB">棟別</label><select id="repB" data-filter="repB">${opts(p.bldgs,b)}</select><span class="muted small">點選任一列可查看該版的計算導引圖。</span></div>
-  <div class="row"><button class="btn" data-act="copyrep">複製表格（貼到 Excel）</button>${standalone?'<button class="btn" data-act="print">列印</button><button class="btn" data-act="csvrep">下載 CSV</button>':''}</div></div>
+  <div class="row"><button class="btn" data-act="copyrep">複製表格（貼到 Excel）</button>${standalone?'<button class="btn primary" data-act="xlsxrep">下載 Excel（總表＋柱樑版牆）</button><button class="btn" data-act="print">列印</button><button class="btn" data-act="csvrep">下載 CSV（版明細）</button>':''}</div></div>
   <div class="scroll"><div class="sheet" id="sheet">
     <h1>模板報表</h1>
     <div class="meta">工程代號:${esc(p.code)}　　工程名稱:${esc(p.name)}<br>印制時間:${nowStr()}<br>棟別:${esc(b)}</div>
@@ -1437,6 +1437,59 @@ function repTSV(p,b){
   out.push(['合計','','','',f2(T.o),'',f2(T.se),'',f2(T.w),'',f2(T.c),'',f2(T.ded),f2(T.real)]);
   return out;
 }
+/* ---------- Excel 下載：總表（分層數量表）＋柱、樑、版、牆、其他明細 ---------- */
+function sumRows(p,b){
+  const {fl,F}=summary(p,b);const K=['版','樑','柱','牆','其他'];const LS=num(p.loss,1.1);
+  const t=(key,title)=>{const ls=key==='form'&&LS!==1;const rows=[[title],['樓層','範圍',...K,'樓層合計',...(ls?['含損耗 ×'+LS]:[])]];const tot=K.map(()=>0);
+    fl.forEach(f=>{const r=F[f][key];const v=K.map(k=>r[k]);v.forEach((x,i)=>tot[i]+=x);const sm=v.reduce((a,c)=>a+c,0);rows.push([f,flRange(p,f),...v.map(r2),r2(sm),...(ls?[r2(sm*LS)]:[])])});
+    const all=tot.reduce((a,c)=>a+c,0);rows.push(['總計','',...tot.map(r2),r2(all),...(ls?[r2(all*LS)]:[])]);return rows};
+  return {form:t('form','模板分層數量統計總表 (m²)'),conc:t('conc','混凝土分層數量統計總表 (m³)')};
+}
+const memCat=m=>['樑','柱','牆'].includes(m.type)?m.type:m.kind?'版':'其他';
+function repBook(p,b){
+  const fo=floorsDesc(p),idOf=new Map(),pid=(o,f)=>{if(!idOf.has(f))idOf.set(f,plotData(p,f,b).ids);return idOf.get(f).get(o)||''};
+  const S0=sumRows(p,b),head=[[`工程代號:${p.code||''}　工程名稱:${p.name||''}　棟別:${b}　印製時間:${nowStr()}`],[]];
+  const sheets=[{name:'總表',rows:[...head,...S0.form,[],...S0.conc],hd:[]}];
+  // 版：版明細＋歸在版的構件（樓梯平台、基礎版等）
+  {const rows=[...head,['樓層','圖號','版編號','版內編','原始模板','計算式','封模','計算式','扣版牆接頭','計算式','扣柱頭','計算式','真實模板 m²','混凝土式','混凝土 m³']];let TF=0,TC=0;
+    fo.forEach(f=>{const sl=p.slabs.filter(s=>s.floor===f&&s.bldg===b).sort((a,c)=>String(a.code).localeCompare(String(c.code))||num(a.no,0)-num(c.no,0)),ms=p.members.filter(m=>m.floor===f&&m.bldg===b&&memCat(m)==='版');if(!sl.length&&!ms.length)return;let sf=0,sc=0;
+      sl.forEach(s=>{const c=slabCalc(s);sf+=c.real;sc+=c.conc;rows.push([f,pid(s,f),s.code,s.no,r2(c.o),s.orig||'',r2(c.se),s.seal||'',r2(c.w),s.wall||'',r2(c.c),s.col||'',r2(c.real),s.noConc?'已計入 1樓地板':`${f2(c.o)}×${fm(c.t)}`,r2(c.conc)])});
+      ms.forEach(m=>{const c=memCalc(m,p);sf+=c.form;sc+=c.conc;rows.push([f,pid(m,f),m.code+(m.pos?'（'+m.pos+'）':''),'','',c.ft,'','','','','','',r2(c.form),c.ct,r2(c.conc)])});
+      rows.push(['',`${f} 層小計`,'','','','','','','','','','',r2(sf),'',r2(sc)]);TF+=sf;TC+=sc});
+    rows.push(['合計','','','','','','','','','','','',r2(TF),'',r2(TC)]);var slabSh={name:'版',rows}}
+  ['柱','樑','牆','其他'].forEach(cat=>{const rows=[...head,['樓層','圖號','編號','位置','寬 b','深 h','長度 L','數量','模板算式','模板 m²','混凝土算式','混凝土 m³']];let TF=0,TC=0,any=false;
+    fo.forEach(f=>{const ms=p.members.filter(m=>m.floor===f&&m.bldg===b&&memCat(m)===cat).sort((a,c)=>String(a.code).localeCompare(String(c.code)));if(!ms.length)return;any=true;let sf=0,sc=0;
+      ms.forEach(m=>{const c=memCalc(m,p);sf+=c.form;sc+=c.conc;rows.push([f,pid(m,f),m.code,m.pos||'',m.b!=null&&m.b!==''?num(m.b,0):'',m.h!=null&&m.h!==''?num(m.h,0):'',m.L!=null&&m.L!==''?num(m.L,0):'',num(m.n,1),c.ft,r2(c.form),c.ct,r2(c.conc)])});
+      rows.push(['',`${f} 層小計`,'','','','','','','',r2(sf),'',r2(sc)]);TF+=sf;TC+=sc});
+    rows.push(['合計','','','','','','','','',r2(TF),'',r2(TC)]);if(any||cat!=='其他')sheets.push({name:cat,rows});if(cat==='樑')sheets.push(slabSh)});
+  return sheets;
+}
+// 簡易 xlsx 產生器（不壓縮的 zip），不需外部函式庫，離線也能用
+function xlsxBlob(sheets){
+  const enc=new TextEncoder(),X=v=>String(v).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g,'');
+  const col=i=>{let s='';i++;while(i){const m=(i-1)%26;s=String.fromCharCode(65+m)+s;i=(i-m-1)/26}return s};
+  const bold=r=>/^(樓層|合計|總計|模板分層|混凝土分層)/.test(String(r[0]))||/層小計$/.test(String(r[1]||''));
+  const sheetXml=sh=>{const w=[];sh.rows.forEach(r=>r.forEach((v,i)=>{const l=[...String(v)].reduce((a,ch)=>a+(ch.charCodeAt(0)>255?2:1),0);w[i]=Math.max(w[i]||8,Math.min(60,l+2))}));
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"/></sheetViews><cols>${w.map((x,i)=>`<col min="${i+1}" max="${i+1}" width="${x}" customWidth="1"/>`).join('')}</cols><sheetData>${sh.rows.map((r,ri)=>{const st=bold(r)?' s="1"':'';return `<row r="${ri+1}">${r.map((v,ci)=>{const ref=col(ci)+(ri+1);if(v===''||v==null)return '';return typeof v==='number'&&isFinite(v)?`<c r="${ref}"${st}><v>${v}</v></c>`:`<c r="${ref}" t="inlineStr"${st}><is><t xml:space="preserve">${X(v)}</t></is></c>`}).join('')}</row>`}).join('')}</sheetData></worksheet>`};
+  const files=[['[Content_Types].xml',`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${sheets.map((_,i)=>`<Override PartName="/xl/worksheets/sheet${i+1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>`],
+    ['_rels/.rels',`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
+    ['xl/workbook.xml',`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheets.map((sh,i)=>`<sheet name="${X(sh.name)}" sheetId="${i+1}" r:id="rId${i+1}"/>`).join('')}</sheets></workbook>`],
+    ['xl/_rels/workbook.xml.rels',`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((_,i)=>`<Relationship Id="rId${i+1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i+1}.xml"/>`).join('')}<Relationship Id="rId${sheets.length+1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`],
+    ['xl/styles.xml',`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`],
+    ...sheets.map((sh,i)=>[`xl/worksheets/sheet${i+1}.xml`,sheetXml(sh)])];
+  const T=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;T[n]=c>>>0}
+  const crc=u=>{let c=0xFFFFFFFF;for(let i=0;i<u.length;i++)c=T[(c^u[i])&255]^(c>>>8);return (c^0xFFFFFFFF)>>>0};
+  const parts=[],cd=[];let off=0;
+  files.forEach(([n,t])=>{const nm=enc.encode(n),d=enc.encode(t),c=crc(d),h=new DataView(new ArrayBuffer(30));
+    h.setUint32(0,0x04034b50,true);h.setUint16(4,20,true);h.setUint16(6,0x0800,true);h.setUint32(14,c,true);h.setUint32(18,d.length,true);h.setUint32(22,d.length,true);h.setUint16(26,nm.length,true);
+    const e=new DataView(new ArrayBuffer(46));e.setUint32(0,0x02014b50,true);e.setUint16(4,20,true);e.setUint16(6,20,true);e.setUint16(8,0x0800,true);e.setUint32(16,c,true);e.setUint32(20,d.length,true);e.setUint32(24,d.length,true);e.setUint16(28,nm.length,true);e.setUint32(42,off,true);
+    parts.push(h,nm,d);cd.push(e,nm);off+=30+nm.length+d.length});
+  const cdl=cd.reduce((a,x)=>a+x.byteLength,0),z=new DataView(new ArrayBuffer(22));z.setUint32(0,0x06054b50,true);z.setUint16(8,files.length,true);z.setUint16(10,files.length,true);z.setUint32(12,cdl,true);z.setUint32(16,off,true);
+  return new Blob([...parts,...cd,z],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+}
+// 手機主畫面 App 用分享選單存檔；網頁直接下載
+function saveFile(file){if(iosApp()){S._pdf=file;openDlg('檔案已產生',`<p>${esc(file.name)}（${Math.ceil(file.size/1024)} KB）</p><p class="muted small">按「分享／存檔」後選「儲存到檔案」或用 Excel、Numbers 開啟。</p><div class="row"><button class="btn primary" data-act="pdfshare">分享／存檔</button></div>`)}else{const a=document.createElement('a');a.href=URL.createObjectURL(file);a.download=file.name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1000)}}
+function repXlsx(p,b){const nm=`${p.name||p.code||'專案'}_${b}棟_模板報表.xlsx`.replace(/[\\/:*?"<>|]/g,'_');saveFile(new File([xlsxBlob(repBook(p,b))],nm,{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}))}
 /* ---------- 分層統計 ---------- */
 function viewSum(p){
   const b=S.sumB||'';const {fl,F}=summary(p,b);
@@ -1448,7 +1501,7 @@ function viewSum(p){
     <div class="scroll"><table class="data"><thead><tr><th>樓層</th><th>範圍</th>${K.map(k=>`<th class="r">${k}</th>`).join('')}<th class="r">樓層合計</th>${ls?`<th class="r">含損耗 ×${LS}</th>`:''}</tr></thead><tbody>${rows}<tr class="foot"><td>總計</td><td></td>${K.map(k=>`<td class="r num">${f2(tot[k])}</td>`).join('')}<td class="r num">${f2(all)}</td>${ls?`<td class="r num">${f2(all*LS)}</td>`:''}</tr></tbody></table></div></div>`};
   return `<div class="stack">
   <div class="row" style="justify-content:space-between"><div class="row"><label class="small muted" for="sumB">棟別</label><select id="sumB" data-filter="sumB"><option value="">全部棟別</option>${opts(p.bldgs,b)}</select></div>
-  <div class="row"><button class="btn" data-act="copysum">複製兩張總表（貼到 Excel）</button>${standalone?'<button class="btn" data-act="print">列印</button>':''}</div></div>
+  <div class="row"><button class="btn" data-act="copysum">複製兩張總表（貼到 Excel）</button>${standalone?'<button class="btn primary" data-act="xlsxsum">下載 Excel（總表＋柱樑版牆）</button><button class="btn" data-act="print">列印</button>':''}</div></div>
   ${tbl('form','m²','模板分層數量統計總表')}${tbl('conc','m³','混凝土分層數量統計總表')}
   <p class="muted small">每層範圍＝本層樓板面到上一層樓板面：本層的柱、牆，加上上一層樓板的樑（側模、底模）與版底模；例如 1 樓＝1FL～2FL，基礎層＝地樑、基礎版，加上 1FL 樓板底模（地樑之間的版）。樓梯（斜底版＋踏步立面）依樓梯剖面圖算在牆，樓梯平台算在版。</p>
   <p class="muted small">版模板取「真實模板」；版混凝土 = 原始模板面積 × 版厚。樑混凝土取全樑深 b×h×淨跨，柱、牆高度算到版底（H − ts），三者不重複計算。</p></div>`;
@@ -1810,6 +1863,8 @@ document.addEventListener('click',async e=>{
   case 'pdfopen':{const f=S._pdf;if(f)window.open(URL.createObjectURL(f),'_blank');break}
   case 'copyrep':{const b=S.repB&&p.bldgs.includes(S.repB)?S.repB:p.bldgs[0];copyText(repTSV(p,b).map(r=>r.join('\t')).join('\n'));break}
   case 'csvrep':{const b=S.repB&&p.bldgs.includes(S.repB)?S.repB:p.bldgs[0];download(`${p.code}_模板報表_${b}.csv`,'﻿'+repTSV(p,b).map(r=>r.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(',')).join('\r\n'),'text/csv');break}
+  case 'xlsxrep':{repXlsx(p,S.repB&&p.bldgs.includes(S.repB)?S.repB:p.bldgs[0]);break}
+  case 'xlsxsum':{repXlsx(p,S.sumB&&p.bldgs.includes(S.sumB)?S.sumB:p.bldgs[0]);break}
   case 'copysum':{const {fl,F}=summary(p,S.sumB||'');const K=['版','樑','柱','牆','其他'];const LS=num(p.loss,1.1);const t=(key,title)=>{const ls=key==='form'&&LS!==1;const rows=[[title],['樓層','範圍',...K,'樓層合計',...(ls?['含損耗 ×'+LS]:[])]];const tot=K.map(()=>0);fl.forEach(f=>{const r=F[f][key];const v=K.map(k=>r[k]);v.forEach((x,i)=>tot[i]+=x);const sm=v.reduce((a,b)=>a+b,0);rows.push([f,flRange(p,f),...v.map(f2),f2(sm),...(ls?[f2(sm*LS)]:[])])});const all=tot.reduce((a,b)=>a+b,0);rows.push(['總計','',...tot.map(f2),f2(all),...(ls?[f2(all*LS)]:[])]);return rows};
     copyText([...t('form','模板分層數量統計總表 (m²)'),[],...t('conc','混凝土分層數量統計總表 (m³)')].map(r=>r.join('\t')).join('\n'));break}
   case 'print':{const sh=$('#sheet');const html=sh?sh.outerHTML:[...document.querySelectorAll('#main .panel')].filter(x=>x.querySelector('table')).map(x=>x.outerHTML).join('');printOut(html,`${p.name||'專案'}_${S.tab==='rep'?'模板報表':'分層統計'}`);break}
@@ -1873,7 +1928,7 @@ function download(name,data,type){const a=document.createElement('a');a.href=URL
 })();
 
 /* 新版本提示：網站版才有，按「更新」才重新載入 */
-const BUILD='20261026074823';
+const BUILD='20261026075329';
 function checkUpdate(){
   if(!BUILD||BUILD.startsWith('__')||!/^https?:/.test(location.protocol))return;
   fetch('version.json?t='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{
