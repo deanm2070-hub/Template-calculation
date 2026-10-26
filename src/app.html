@@ -29,6 +29,8 @@
   --accent:#93a2ff; --accent-ink:#0c0f22; --hl:rgba(147,162,255,.14);
   --red:#ff7a7f; --ok:#5fd39a; --warn:#ffb54d; --wall:#ff7a7f; --seal:#5cc8ff; --col:#ffb54d; color-scheme:dark}
 html,body{height:100%}
+html{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+html,body{overflow-x:hidden;max-width:100%}
 *,*::before,*::after{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.55}
 button,input,select,textarea{font:inherit;color:inherit}
@@ -154,6 +156,26 @@ svg .g-form{stroke:var(--accent);stroke-width:4;fill:none}
 svg .g-conc{fill:var(--muted);fill-opacity:.18;stroke:var(--muted)}
 svg .g-dim{stroke:var(--muted);stroke-width:1}
 
+/* ---------- 手機：一頁寬、不縮放 ---------- */
+.sheet-fit{overflow:hidden}
+@media (max-width:700px){
+  input[type=text],input[type=number],select,textarea{font-size:16px}
+  table.data input,table.data select{font-size:16px}
+  .cadbox{height:58dvh;min-height:300px}
+  table.cardify,table.cardify tbody{display:block;width:100%}
+  table.cardify thead{display:none}
+  table.cardify tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 12px;border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:10px;background:var(--surface)}
+  table.cardify td{display:flex;flex-direction:column;gap:2px;border:0;padding:0;min-width:0;white-space:normal;text-align:left}
+  table.cardify td.r{text-align:left}
+  table.cardify td::before{content:attr(data-label);font-size:11px;color:var(--muted)}
+  table.cardify td:empty,table.cardify td.blank{display:none}
+  table.cardify td.wide{grid-column:1/-1}
+  table.cardify td[colspan]{grid-column:1/-1}
+  table.cardify td[colspan]::before{content:none}
+  table.cardify input:not([type=checkbox]),table.cardify select{width:100%!important}
+  table.cardify input[type=checkbox]{width:22px;height:22px}
+  .row{gap:8px}
+}
 dialog{border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);padding:0;width:min(860px,calc(100vw - 32px));max-height:calc(100vh - 40px)}
 dialog::backdrop{background:rgba(5,8,30,.55)}
 .dlg-h{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);gap:10px}
@@ -637,8 +659,20 @@ function render(){
   if(S.view==='projects'||!P()){S.view='projects';$('#crumb').textContent='專案列表';main.innerHTML=viewProjects();return}
   const p=P();$('#crumb').textContent=`${p.code}　${p.name}`;
   main.innerHTML=viewProject(p);
+  afterRender();
   if(S.tab==='draw')mountCad();
 }
+function afterRender(){
+  // 卡片式表格：把表頭文字放到每格的 data-label
+  document.querySelectorAll('table.cardify').forEach(t=>{const hs=[...t.querySelectorAll('thead th')].map(th=>th.textContent.trim());
+    t.querySelectorAll('tbody tr').forEach(tr=>[...tr.children].forEach((td,i)=>{if(td.hasAttribute('colspan'))return;td.dataset.label=hs[i]||'';
+      if(!td.innerHTML.trim())td.classList.add('blank');if(td.querySelector('input.w10,input.w14')||td.querySelector('.row'))td.classList.add('wide')}))});
+  fitSheet();
+}
+function fitSheet(){const sh=$('#sheet');if(!sh)return;sh.style.zoom='';const box=sh.parentElement;
+  if(window.innerWidth>700){box.classList.remove('sheet-fit');return}
+  box.classList.add('sheet-fit');const w=sh.scrollWidth,av=box.clientWidth;if(w>av)sh.style.zoom=String(Math.floor(av/w*1000)/1000)}
+window.addEventListener('resize',()=>{fitSheet()});
 function viewProjects(){
   const list=S.projects.slice().sort((a,b)=>b.created-a.created);
   return `<div class="stack">
@@ -721,10 +755,16 @@ async function mountCad(){
   V.resize=resize;
   if(V.hi&&V.hi.dwg===d.id){fitTo(V.hi.bb)}else fitTo(ents.ext);
   resize();
-  let drag=null;
-  cv.onpointerdown=e=>{drag={x:e.clientX,y:e.clientY,cx:V.cx,cy:V.cy,moved:false};cv.setPointerCapture(e.pointerId)};
-  cv.onpointermove=e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.abs(dx)+Math.abs(dy)>3)drag.moved=true;V.cx=drag.cx-dx/V.z;V.cy=drag.cy+dy/V.z;draw()};
-  cv.onpointerup=e=>{if(drag&&!drag.moved)pick(e);drag=null};
+  let drag=null;const pts=new Map();let pinch=null;
+  const mid=()=>{const a=[...pts.values()];return {x:(a[0].x+a[1].x)/2,y:(a[0].y+a[1].y)/2,d:Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)}};
+  cv.onpointerdown=e=>{pts.set(e.pointerId,{x:e.clientX,y:e.clientY});cv.setPointerCapture(e.pointerId);
+    if(pts.size===2){const m=mid(),r=cv.getBoundingClientRect();pinch={d:m.d,z:V.z,wx:V.cx+(m.x-r.left-V.W/2)/V.z,wy:V.cy-(m.y-r.top-V.H/2)/V.z};drag=null}
+    else if(pts.size===1)drag={x:e.clientX,y:e.clientY,cx:V.cx,cy:V.cy,moved:false}};
+  cv.onpointermove=e=>{if(!pts.has(e.pointerId))return;pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(pinch&&pts.size===2){const m=mid(),r=cv.getBoundingClientRect();V.z=pinch.z*(m.d/(pinch.d||1));V.cx=pinch.wx-(m.x-r.left-V.W/2)/V.z;V.cy=pinch.wy+(m.y-r.top-V.H/2)/V.z;draw();return}
+    if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.abs(dx)+Math.abs(dy)>3)drag.moved=true;V.cx=drag.cx-dx/V.z;V.cy=drag.cy+dy/V.z;draw()};
+  const up=e=>{pts.delete(e.pointerId);if(pinch){if(pts.size<2)pinch=null;drag=null;return}if(drag&&!drag.moved&&e.type==='pointerup')pick(e);drag=null};
+  cv.onpointerup=up;cv.onpointercancel=up;
   cv.onwheel=e=>{e.preventDefault();const r=cv.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top;const wx=V.cx+(mx-V.W/2)/V.z,wy=V.cy-(my-V.H/2)/V.z;const f=Math.exp(-e.deltaY*0.0015);V.z*=f;V.cx=wx-(mx-V.W/2)/V.z;V.cy=wy+(my-V.H/2)/V.z;draw()};
   if(window.ResizeObserver){new ResizeObserver(()=>resize()).observe(box)}
   if(V.hi&&V.hi.dwg===d.id)showInfoForSlab(V.hi.slab);
@@ -776,7 +816,7 @@ function viewSlab(p){
     <label class="small muted" for="sfF">樓層</label><select id="sfF" data-filter="floorFilter"><option value="">全部</option>${opts(floorsDesc(p),ff)}</select></div>
     <button class="btn pri" data-act="addslab">新增版</button></div>
   <p class="muted small" style="margin:0">計算式欄可輸入 <span class="num">4*0.15+1.5*0.15</span> 這類算式。扣除欄填正值，報表會以負值顯示。真實模板 = 原始模板 + 封模 − 扣版牆接頭 − 扣柱頭。</p>
-  <div class="scroll"><table class="data"><thead><tr><th>棟別</th><th>樓層</th><th>版編號</th><th>版內編</th><th>版厚 t</th><th>原始模板（面積式）</th><th>封模式</th><th>扣版牆接頭式</th><th>扣柱頭式</th><th class="r">真實模板 m²</th><th class="r">混凝土 m³</th><th>來源</th><th></th></tr></thead>
+  <div class="scroll"><table class="data cardify"><thead><tr><th>棟別</th><th>樓層</th><th>版編號</th><th>版內編</th><th>版厚 t</th><th>原始模板（面積式）</th><th>封模式</th><th>扣版牆接頭式</th><th>扣柱頭式</th><th class="r">真實模板 m²</th><th class="r">混凝土 m³</th><th>來源</th><th></th></tr></thead>
   <tbody>${rows.map(s=>{const c=slabCalc(s);return `<tr data-id="${s.id}" class="${c.bad?'bad':''}">
     <td><select data-sk="bldg">${opts(p.bldgs,s.bldg)}</select></td>
     <td><select data-sk="floor">${opts(p.floors.map(f=>f.name),s.floor)}</select></td>
@@ -803,7 +843,7 @@ function viewMem(p){
     <label class="small muted" for="mfF">樓層</label><select id="mfF" data-filter="floorFilter"><option value="">全部</option>${opts(fo,ff)}</select></div>
     <div class="row"><button class="btn" data-act="addmem" data-k="柱">＋柱</button><button class="btn" data-act="addmem" data-k="梁">＋梁</button><button class="btn" data-act="addmem" data-k="牆">＋牆</button><button class="btn" data-act="addmem" data-k="其他">＋其他（樓梯、基礎…）</button></div></div>
   <p class="muted small" style="margin:0">尺寸單位 m。柱、牆高 H 留空時採該樓層層高；版厚 ts 留空時採專案預設。梁長 L 取柱面間淨跨，「外側」打勾表示邊梁外側模板做到全梁深。</p>
-  <div class="scroll"><table class="data"><thead><tr><th>棟別</th><th>樓層</th><th>類型</th><th>編號</th><th>b / D</th><th>h</th><th>L</th><th>H</th><th>ts</th><th>數量</th><th>外側/圓柱</th><th>扣模板 m²</th><th>開口 m²</th><th>模板式（其他）</th><th>混凝土式（其他）</th><th class="r">模板 m²</th><th class="r">混凝土 m³</th><th>來源</th><th></th></tr></thead>
+  <div class="scroll"><table class="data cardify"><thead><tr><th>棟別</th><th>樓層</th><th>類型</th><th>編號</th><th>b / D</th><th>h</th><th>L</th><th>H</th><th>ts</th><th>數量</th><th>外側/圓柱</th><th>扣模板 m²</th><th>開口 m²</th><th>模板式（其他）</th><th>混凝土式（其他）</th><th class="r">模板 m²</th><th class="r">混凝土 m³</th><th>來源</th><th></th></tr></thead>
   <tbody>${rows.map(m=>{const c=memCalc(m,p);const o=m.type==='其他';return `<tr data-id="${m.id}" class="${c.bad?'bad':''}">
     <td><select data-mk="bldg">${opts(p.bldgs,m.bldg)}</select></td><td><select data-mk="floor">${opts(p.floors.map(f=>f.name),m.floor)}</select></td>
     <td>${esc(m.type)}</td><td><input class="w4" type="text" data-mk="code" value="${esc(m.code)}"></td>
@@ -1119,6 +1159,12 @@ function download(name,data,type){const a=document.createElement('a');a.href=URL
   sp.addEventListener('click',enter);sp.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();enter()}});
   sp.focus();
 })();
+
+/* 鎖住頁面縮放（圖面檢視區另有自己的雙指縮放） */
+document.addEventListener('gesturestart',e=>e.preventDefault());
+document.addEventListener('gesturechange',e=>e.preventDefault());
+document.addEventListener('touchmove',e=>{if(e.touches.length>1)e.preventDefault()},{passive:false});
+let _lastTouch=0;document.addEventListener('touchend',e=>{const n=Date.now();if(n-_lastTouch<300&&!e.target.closest('input,select,textarea'))e.preventDefault();_lastTouch=n},{passive:false});
 
 /* 啟動 */
 loadAll();
