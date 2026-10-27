@@ -500,12 +500,35 @@ function readTab(cells){const tt=cells.find(c=>/尺寸表/.test(c.s));if(!tt)ret
     if(codes.length)rows.push({codes,...val})});
   return rows.length?{title:tt.s.replace(/\s+/g,''),rows}:null}
 const tabKey=s=>String(s).replace(/\s+/g,'').replace(/(RC|SS)?結構(尺寸表|平面圖).*$/,'').replace(/平面圖.*$/,'');
+/* 文字排的尺寸表（不是表格物件）：「大梁尺寸表:」下方每列「40x60 ｜ B*,G*,CG11」「15 ｜ S*,CS1」；編號可用 * 萬用、~ 範圍、逗號並列，編號太長時會接到下一行 */
+function readTextTabs(ents){const T=ents.texts,out=[];
+  const ti=T.filter(t=>/^(柱|大梁|小梁|樓板|基礎|樓梯|地梁|地樑)?\s*尺寸表\s*[:：]?$/.test(t.s.trim())&&/尺寸表/.test(t.s));
+  ti.forEach(t=>{const kind=/樓板/.test(t.s)?'slab':/梁|樑/.test(t.s)?'beam':/柱/.test(t.s)?'col':null;if(!kind)return;const h=t.h||30;
+    const hd=T.filter(o=>/^[編尺]\s*[號寸]$/.test(o.s.trim())&&o.x>=t.x-h&&o.x<=t.x+h*60&&o.y<t.y&&o.y>t.y-h*4);const W=Math.max(h*40,...hd.map(o=>o.x-t.x+h*16));
+    const nxt=ti.filter(o=>o!==t&&Math.abs(o.x-t.x)<h*6&&o.y<t.y).map(o=>o.y);const yb=nxt.length?Math.max(...nxt):t.y-h*60;
+    const cells=T.filter(o=>o!==t&&!hd.includes(o)&&o.x>=t.x-h&&o.x<=t.x+W&&o.y<t.y&&o.y>yb).sort((a,b)=>b.y-a.y||a.x-b.x);
+    const RXS=/^(\d{2,3})\s*[xX×]\s*(\d{2,3})$/,RXT=/^(\d{1,2}(?:\.\d)?)$/,RXC=/^[A-Za-z]{1,4}\d*[A-Za-z]?\*?(\s*[~～]\s*[A-Za-z]*\d+[A-Za-z]?)?([,，、]\s*[A-Za-z]{1,4}\d*[A-Za-z]?\*?(\s*[~～]\s*[A-Za-z]*\d+[A-Za-z]?)?)*[,，、]?$/;
+    const rows=[];cells.forEach(c=>{const v=c.s.trim(),m=v.match(RXS),mt=kind==='slab'?v.match(RXT):null;if(!m&&!mt)return;
+      const val=m?{b:+m[1]/100,h:+m[2]/100}:{t:+mt[1]/100};const hh=c.h||h;
+      const labs=cells.filter(o=>o!==c&&Math.abs(o.y-c.y)<hh*1.4&&RXC.test(o.s.trim())&&!RXS.test(o.s.trim()));if(!labs.length)return;
+      const codes=[],pat=[];labs.forEach(o=>o.s.trim().split(/[,，、\s]+/).filter(Boolean).forEach(part=>{
+        const rg=part.match(/^([A-Za-z]+)(\d+)\s*[~～]\s*([A-Za-z]+)?(\d+)([A-Za-z]?)$/);if(rg){for(let i=+rg[2];i<=+rg[4];i++)codes.push(rg[1]+i+(rg[5]||''))}
+        else if(/\*$/.test(part))pat.push('^'+part.slice(0,-1).replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\d');
+        else if(/^[A-Za-z]{1,4}\d*[A-Za-z]?$/.test(part))codes.push(part)}));
+      if(codes.length||pat.length)rows.push(Object.assign({codes,pat},val))});
+    if(rows.length)out.push({title:t.s.trim(),kind,rows,x:t.x,y:t.y,txt:true})});
+  return out}
+const tabMatch=(r,code)=>r.codes.includes(code)||(r.pat||[]).some(p=>new RegExp(p).test(code));
 // 標註沒有尺寸的樑、版：依同層結構尺寸表補上樑寬、樑深、版厚
-function applyTabs(R,tabs,d){const rc=tabs.filter(t=>!/SS/.test(t.title));if(!rc.length)return 0;let n=0;
+function applyTabs(R,tabs,d){const rc=tabs.filter(t=>!/SS/.test(t.title)&&!t.txt),tx=tabs.filter(t=>t.txt);if(!rc.length&&!tx.length)return 0;let n=0;
   const tabOf=e=>e._plan?rc.find(t=>tabKey(t.title)===tabKey(e._plan)):(rc.length===1?rc[0]:null);
   const look=(t,code)=>t&&t.rows.find(r=>r.codes.includes(code));
-  R.beams.forEach(b=>{if(b.hLab)return;const r=look(tabOf(b),b.code);if(r&&r.h){b.b=r.b;b.h=r.h;n++}});
-  R.slabs.forEach(s=>{const r=look(tabOf(s),s.code);if(r&&r.t){s.t=r.t;n++}});
+  // 文字尺寸表：先用同一張平面圖旁的表，該張沒有這種表（二層、屋頂層共用一張圖的表）再用最近的一張
+  const lookTx=(e,code,kind,key,pos)=>{if(!tx.length)return null;const c=tx.filter(t=>t.kind===kind&&t.rows.some(r=>tabMatch(r,code)&&r[key]!=null));if(!c.length)return null;
+    c.sort((a,b)=>((a._plan===e._plan?0:1)-(b._plan===e._plan?0:1))||(Math.hypot(a.x-pos[0],a.y-pos[1])-Math.hypot(b.x-pos[0],b.y-pos[1])));
+    const t=c[0];return t.rows.find(r=>r.codes.includes(code)&&r[key]!=null)||t.rows.find(r=>tabMatch(r,code)&&r[key]!=null)};
+  R.beams.forEach(b=>{if(b.hLab)return;const r=look(tabOf(b),b.code)||lookTx(b,b.code,'beam','h',[(b.p0[0]+b.p1[0])/2,(b.p0[1]+b.p1[1])/2]);if(r&&r.h){b.b=r.b;b.h=r.h;n++}});
+  R.slabs.forEach(s=>{const r=look(tabOf(s),s.code)||lookTx(s,s.code,'slab','t',centroid(s.pts));if(r&&r.t){s.t=r.t;n++}});
   return n}
 
 /* =========================================================
@@ -611,8 +634,8 @@ function recognize(ents,d,P){
     cols.push({pts,shape:'rect',b:Math.round(b*100)/100,h:Math.round(h*100)/100,c:centroid(pts)})});
   ents.arcs.forEach(a=>{if(!on('col')(a.l)||!a.full)return;const D=2*a.r*k;if(D<0.15||D>3)return;const pts=[];for(let i=0;i<24;i++){const t=i/24*Math.PI*2;pts.push([a.x+a.r*Math.cos(t),a.y+a.r*Math.sin(t)])}cols.push({pts,shape:'circle',b:Math.round(D*100)/100,h:Math.round(D*100)/100,c:[a.x,a.y]})});
   const T=ents.texts;
-  const nearText=(c,rx,maxd)=>{let best=null,bd=maxd/k;T.forEach(t=>{if(!rx.test(t.s))return;const dd=Math.hypot(t.x-c[0],t.y-c[1]);if(dd<bd){bd=dd;best=t}});return best};
-  cols.forEach(c=>{const t=nearText(c.c,RX_COL,1.5);c.code=t?t.s:'C'});
+  const nearText=(c,rx,maxd,ok)=>{let best=null,bd=maxd/k;T.forEach(t=>{if(!rx.test(t.s)||(ok&&!ok(t.s)))return;const dd=Math.hypot(t.x-c[0],t.y-c[1]);if(dd<bd){bd=dd;best=t}});return best};
+  cols.forEach(c=>{const t=nearText(c.c,RX_COL,1.5,s=>!/^[A-Za-z]{0,2}[BGJbgj]\d/.test(s));c.code=t?t.s:'C'});
   // 平行線配對（樑、牆）
   function pairs(segs,minW,maxW){
     const S2=segs.map(([a,b,l])=>{const dx=b[0]-a[0],dy=b[1]-a[1],L=Math.hypot(dx,dy);return {a,b,l,L,ux:dx/L,uy:dy/L}}).filter(s=>s.L*k>=0.2);
@@ -653,8 +676,15 @@ function recognize(ents,d,P){
       const dd=strict?Math.abs(vx*uy-vy*ux):segDist(o.c,b.p0,b.p1);if(dd<bd){bd=dd;best=o.m}});return best};
     const best=pick(true)||pick(false);
     b.code=best?best[1]:'B'; b.b=b.w; b.h=best&&best[3]?(+best[3])/100:(d.beamH||0.6);b.hLab=!!(best&&best[3]); if(best&&best[2])b.b=(+best[2])/100;b.h2=best&&best[4]?(+best[4])/100:null;});
-  const walls=pairs(segsOf('wall'),0.08,0.6);
+  // 圖例、說明區的「RC柱」「RC梁」符號：沒編號的柱旁邊沒有任何樑、沒編號的樑兩端都不接柱也不接有編號的樑 → 不是構件
+  if(d.kind==='struct'&&beams.some(b=>b.code!=='B')){const reach=c=>(Math.max(c.b,c.h)/2+0.6)/k;const nearCol=(pt,c)=>Math.hypot(pt[0]-c.c[0],pt[1]-c.c[1])<reach(c);
+    const keepB=new Set(beams.filter(b=>b.code!=='B'||cols.some(c=>c.code!=='C'&&(nearCol(b.p0,c)||nearCol(b.p1,c)))||beams.some(o=>o!==b&&o.code!=='B'&&(segDist(b.p0,o.p0,o.p1)<0.6/k||segDist(b.p1,o.p0,o.p1)<0.6/k))));
+    const keepC=new Set(cols.filter(c=>c.code!=='C'||beams.some(b=>b.code!=='B'&&segDist(c.c,b.p0,b.p1)<reach(c))));
+    beams.splice(0,beams.length,...beams.filter(b=>keepB.has(b)));cols.splice(0,cols.length,...cols.filter(c=>keepC.has(c)))}
+  let walls=pairs(segsOf('wall'),0.08,0.6);
   walls.forEach(w=>{let best=null,bd=1.0/k;T.forEach(t=>{const mm=t.s.match(RX_WALL);if(!mm)return;const dd=segDist([t.x,t.y],w.p0,w.p1);if(dd<bd){bd=dd;best=mm}});w.code=best?best[1]:'W'});
+  // 結構圖說明區的牆符號（RC牆、磚牆圖例）：離所有樑、柱都超過 3m 的牆段不是構件
+  if(d.kind==='struct'&&beams.some(b=>b.code!=='B')){const far=3/k;walls=walls.filter(w=>{const m=[(w.p0[0]+w.p1[0])/2,(w.p0[1]+w.p1[1])/2];return beams.some(b=>segDist(m,b.p0,b.p1)<far)||cols.some(c=>Math.hypot(m[0]-c.c[0],m[1]-c.c[1])<far)})}
   // 版
   let slabPolys=ents.polys.filter(p=>on('slab')(p.l)&&p.closed).map(p=>dedupe(p.pts)).filter(p=>p.length>=3&&Math.abs(polyArea(p))*k*k>=0.3);
   // 版圖層若只是整層外框（框內含柱），改由樑、柱圍出的每一格計算樓版淨面積
@@ -865,7 +895,7 @@ function findPlanTitles(ents){
   const st=c.filter(x=>/結構|FRAMING|STRUCT/i.test(x.t.s));const pool=st.length?st:c;
   const g=new Map();pool.forEach(x=>{const k=Math.round(x.t.h*10)/10;if(!g.has(k))g.set(k,[]);g.get(k).push(x)});
   let best=[];g.forEach(v=>{if(v.length>best.length||(v.length===best.length&&v[0].t.h>(best[0]?.t.h||0)))best=v});
-  return best.map(x=>{const w=[...x.t.s].reduce((a,ch)=>a+(/[　-鿿＀-￯]/.test(ch)?1:0.6),0)*x.t.h;return {s:x.t.s,fl:x.fl,cx:x.t.x+w/2,y:x.t.y,h:x.t.h}});
+  return best.map(x=>{const w=[...x.t.s].reduce((a,ch)=>a+(/[　-鿿＀-￯]/.test(ch)?1:0.6),0)*x.t.h;return {s:x.t.s,fl:x.fl,x:x.t.x,cx:x.t.x+w/2,y:x.t.y,h:x.t.h}});
 }
 function assignPlans(R,titles,k){
   const slack=0.5/k;
@@ -905,11 +935,25 @@ function autoProcess(P,d,ents){
   d.floors=floors;d.floorFrom=(det.from||'未標示，暫列 '+floors[0]+' 層')+(st&&det.floors.length?'；結構平面圖歸入下方樓層':'');d.levels=nLv;
   d.slabT=P.slabT;d.beamH=P.beamH;d.parapet=readParapet(ents);d.stairs=readStairs(ents,d.unit);d.drop=readDrop(ents,d.unit);d.stairN=countStairs(ents,d.unit);d.slabSch=readSlabSchedule(ents);{const fs=d.slabSch.find(x=>x.codes.some(c=>/^F/.test(c)));d.raftT=fs?fs.t:null}
   const R=recognize(ents,d,P);
-  if(titles.length>=2||(titles.length===1&&!det.floors.length)){assignPlans(R,titles,d.unit);d.plans=titles.map(t=>t.s);d.floorFrom='依各平面圖圖名分層（'+titles.length+' 張）'+(st?'；結構平面圖歸入下方樓層':'');
+  const ttabs=readTextTabs(ents);
+  if(titles.length>=2||(titles.length===1&&!det.floors.length)){assignPlans(R,titles,d.unit);
+    // 圖例區照抄的同名圖名（例如說明欄的「一層結構平面圖(1F)」樣板）：同名圖名只留柱最多的那張
+    {const byS=new Map();titles.forEach(t=>{if(!byS.has(t.s))byS.set(t.s,[]);byS.get(t.s).push(t)});
+      const bad=new Set();if([...byS.values()].some(ts=>ts.length>=2)){const own=new Map();titles.forEach(t=>own.set(t,0));const key=t=>t.s+'@'+Math.round(t.cx)+','+Math.round(t.y);
+        const R2={slabs:[],cols:R.cols.map(c=>({c:c.c})),beams:[],walls:[],outl:[],pits:[]};assignPlans(R2,titles.map(t=>Object.assign({},t,{s:key(t)})),d.unit);
+        const kc=new Map();R2.cols.forEach(c=>kc.set(c._plan,(kc.get(c._plan)||0)+1));
+        byS.forEach(ts=>{if(ts.length<2)return;const best=ts.slice().sort((a,b)=>(kc.get(key(b))||0)-(kc.get(key(a))||0))[0];ts.forEach(t=>{if(t!==best&&(kc.get(key(t))||0)<2)bad.add(t)})});
+        if(bad.size){const tl=titles.filter(t=>!bad.has(t));assignPlans(R,tl,d.unit);titles.splice(0,titles.length,...tl);tStr.splice(0,tStr.length,...tl.map(t=>t.s))}}}
+    // 沒標柱編號的平面（屋頂層只畫下層柱）：各張平面圖上下疊放時，同一位置的柱照別張有編號的柱
+    if(st){const tp=new Map();titles.forEach(t=>tp.set(t.s,t));const tol=0.06/d.unit;const lab=R.cols.filter(c=>c.code!=='C'&&tp.has(c._plan));
+      R.cols.forEach(c=>{if(c.code!=='C'||!tp.has(c._plan))return;const t=tp.get(c._plan);const o=lab.find(l=>{const q=tp.get(l._plan);return q!==t&&Math.abs(q.x-t.x)<tol&&Math.abs((l.c[0]-q.x)-(c.c[0]-t.x))<tol&&Math.abs((l.c[1]-q.y)-(c.c[1]-t.y))<tol&&Math.abs(l.b-c.b)<0.03&&Math.abs(l.h-c.h)<0.03});if(o)c.code=o.code})}
+    d.plans=titles.map(t=>t.s);d.floorFrom='依各平面圖圖名分層（'+titles.length+' 張）'+(st?'；結構平面圖歸入下方樓層':'');
     [R.slabs,R.cols,R.beams,R.walls,R.outl,R.pits].forEach(a=>a.forEach(e=>{if(e._plan)e.fl=st?planStory(e._plan,tStr):archStory(e._plan,tStr)}));
     {const keep=a=>a.filter(e=>!e._plan||e.fl.length);R.slabs=keep(R.slabs);R.cols=keep(R.cols);R.beams=keep(R.beams);R.walls=keep(R.walls);R.outl=keep(R.outl||[]);R.pits=keep(R.pits||[])}
     d.planAt={};titles.forEach(t=>(st?planStory(t.s,tStr):archStory(t.s,tStr)).forEach(f=>{if(!d.planAt[f])d.planAt[f]=[t.cx*d.unit,t.y*d.unit]}))}
-  d.tabN=ents.tabs?applyTabs(R,ents.tabs,d):0;
+  if(ttabs.length){const tl=titles.length?titles:findPlanTitles(ents);const slack=0.5/d.unit;ttabs.forEach(t=>{let b=null,bs=Infinity;tl.forEach(q=>{const dy=t.y-q.y;if(dy<-slack)return;const sc=Math.max(0,dy)+2*Math.abs(t.x-q.cx);if(sc<bs){bs=sc;b=q}});t._plan=b?b.s:'';t._sc=bs});
+    if(d.raftT==null){const fs=ttabs.filter(t=>t.kind==='slab').sort((a,b)=>a._sc-b._sc).flatMap(t=>t.rows).find(r=>r.t&&(r.codes.some(c=>/^F/i.test(c))||(r.pat||[]).some(p=>/^\^F/i.test(p))));if(fs)d.raftT=fs.t}}
+  d.tabN=applyTabs(R,[...(ents.tabs||[]),...ttabs],d);
   d.openSch=readOpenSch(ents,d.unit);R.wfill=wallFills(R,ents,Object.assign({},...P.drawings.filter(x=>x.kind==='sched').map(x=>x.openSch||{}),d.openSch),d.unit);
   d.wgap=(R.wfill.gaps||[]).map(g=>({fl:[].concat(g.fl||[]),a:g.p0.map(v=>v*d.unit),b:g.p1.map(v=>v*d.unit),L:g.L}));
   applyRecog(P,d,R);
