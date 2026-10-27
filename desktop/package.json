@@ -1,0 +1,43 @@
+{
+  "name": "zhuben-formwork",
+  "productName": "築本模板工程計算",
+  "version": "1.0.0",
+  "description": "築本模板工程計算（Windows 桌面版）",
+  "author": "築本",
+  "license": "GPL-3.0",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "prepare-app": "node prepare.js",
+    "start": "node prepare.js && electron .",
+    "dist": "node prepare.js && electron-builder --win --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "33.4.11",
+    "electron-builder": "25.1.8",
+    "html2canvas": "1.4.1",
+    "jspdf": "2.5.1"
+  },
+  "build": {
+    "appId": "tw.zhuben.formwork",
+    "productName": "築本模板工程計算",
+    "directories": { "output": "release" },
+    "files": ["main.js", "app/**/*"],
+    "win": {
+      "target": ["nsis", "portable"],
+      "icon": "app/assets/icon-512.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "築本模板工程計算",
+      "artifactName": "ZhuBen-Formwork-Setup.exe"
+    },
+    "portable": {
+      "artifactName": "ZhuBen-Formwork-Portable.exe"
+    }
+  }
+}

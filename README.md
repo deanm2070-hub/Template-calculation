@@ -22,6 +22,15 @@
 
 範例圖檔：`samples/sample-structure-plan.dwg`、`samples/sample-structure-plan.dxf`
 
+## Windows 桌面版
+
+到 [Releases](https://github.com/deanm2070-hub/Template-calculation/releases/latest) 下載：
+
+- `ZhuBen-Formwork-Setup.exe`：安裝版，裝好會在桌面建立「築本模板工程計算」捷徑
+- `ZhuBen-Formwork-Portable.exe`：免安裝，放在桌面雙擊即可執行
+
+桌面版內容就是 `index.html`，每次 `main` 更新網頁版後由 GitHub Actions（`.github/workflows/windows-desktop.yml`）自動重新打包。外殼程式在 `desktop/`（Electron）。
+
 ## 開發
 
 原始碼在 `src/app.html`，修改後執行：

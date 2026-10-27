@@ -1,0 +1,48 @@
+name: Windows 桌面版
+
+on:
+  push:
+    branches: [main]
+    paths: [index.html, assets/**, desktop/**, .github/workflows/windows-desktop.yml]
+  pull_request:
+    paths: [index.html, assets/**, desktop/**, .github/workflows/windows-desktop.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - run: npm version 1.0.${{ github.run_number }} --no-git-tag-version
+      - run: npm run dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe
+          path: |
+            desktop/release/ZhuBen-Formwork-Setup.exe
+            desktop/release/ZhuBen-Formwork-Portable.exe
+      - name: 發佈到 Releases
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: desktop-v1.0.${{ github.run_number }}
+          name: 築本模板工程計算 Windows 版 1.0.${{ github.run_number }}
+          make_latest: true
+          body: |
+            下載 **ZhuBen-Formwork-Setup.exe**（安裝版，會在桌面建立捷徑），或 **ZhuBen-Formwork-Portable.exe**（免安裝，直接雙擊執行）。
+            內容與網頁版 ${{ github.sha }} 相同。
+          files: |
+            desktop/release/ZhuBen-Formwork-Setup.exe
+            desktop/release/ZhuBen-Formwork-Portable.exe
