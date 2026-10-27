@@ -1150,7 +1150,8 @@ function memCalc(m,P){
     const t=m.kind==='raft'?raftT(P):num(P.slabT,0.15),A=num(m.A,0),op=m.kind==='slab1'?num(m.open,0):0;conc=(A-op)*t;ct=op?`(${m.dim||fm(A)} − 電梯坑${fm(op)})×${fm(t)}`:`${m.dim||fm(A)}×${fm(t)}`;ft='—'}
   else if(m.type==='樑'){const hs=r2(h-ts);const side=`2×${fm(hs)}`;const sv=2*hs;
     // 樑底下有牆的長度，樑底模扣 牆厚×長度；樑側沒有樓版的長度（開口、樓梯間、外側），側模高度不扣版厚：再加 版厚×無版長度
-    const ns=(m.ns||[]).map(x=>num(x,0)).filter(x=>x>0),nl=ns.reduce((a,x)=>a+x,0);
+    // 使用者規則 2026-10-27：只有邊樑才補無版長度，中間樑一律只算 (b+2(h−ts))×L
+    const ns=m.edge?(m.ns||[]).map(x=>num(x,0)).filter(x=>x>0):[],nl=ns.reduce((a,x)=>a+x,0);
     const cx=num(m.cx,0);form=((b+sv)*L+ts*nl)*n-ded;conc=b*h*(L+cx)*n;ft=nl?`((${fm(b)}+${side})×${fm(L)} + ${fm(ts)}×${ns.length>1?'('+ns.map(fm).join('+')+')':fm(nl)})${n!==1?'×'+n:''}`:`(${fm(b)}+${side})×${fm(L)}${n!==1?'×'+n:''}`;ct=`${fm(b)}×${fm(h)}×${cx?`(${fm(L)}+轉角${fm(cx)})`:fm(L)}${n!==1?'×'+n:''}`;if(ded)ft+=m.dedf?` − (${m.dedf})`:` − ${fm(ded)}`}
   else if(m.kind==='drop'){
     // 垂牆（懸臂版外緣往下垂）：外側模 = 版厚＋垂深，內側模 = 垂深，加底模 = 牆厚；混凝土只算版下垂的部分。尺寸取剖面圖，留空時用剖面讀到的值
