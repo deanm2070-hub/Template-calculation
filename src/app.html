@@ -267,7 +267,7 @@ const fm=v=>{ // 尺寸顯示：去除多餘 0
 };
 const num=(v,d)=>{const n=parseFloat(v);return isFinite(n)?n:d};
 const standalone=(()=>{try{return window.top===window.self}catch(e){return false}})();
-function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('on');clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove('on'),2200)}
+function toast(msg,ms){const t=$('#toast');t.textContent=msg;t.classList.add('on');clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove('on'),ms||2200)}
 function evalExpr(s){
   if(s==null) return 0; s=String(s).trim(); if(!s) return 0;
   s=s.replace(/[×xX＊]/g,'*').replace(/÷/g,'/').replace(/（/g,'(').replace(/）/g,')').replace(/＋/g,'+').replace(/－/g,'-');
@@ -1418,8 +1418,9 @@ const calcVer=()=>{try{return BUILD&&!BUILD.startsWith('__')?BUILD:'r22'}catch(e
 async function recalcAll(p){
   if(recalcAll.busy)return;recalcAll.busy=true;let n=0;
   try{toast('正在依新規則重新計算圖檔…');await new Promise(r=>setTimeout(r,60));
-    for(const d of p.drawings.slice()){const ents=await entGet(d.id);if(!ents)continue;autoProcess(p,d,ents);n++}
+    const lost=[];for(const d of p.drawings.slice()){const ents=await entGet(d.id);if(!ents){lost.push(d.name);d.lost=true;continue}d.lost=false;autoProcess(p,d,ents);n++}
     p.calcVer=calcVer();saveAll();
+    if(lost.length)setTimeout(()=>toast(`「${lost.join('、')}」的圖檔資料已不在此裝置，無法用新規則重算，請重新匯入該圖檔`,6000),400);
   }catch(e){toast('重新計算失敗：'+(e.message||e))}
   finally{recalcAll.busy=false}
   if(n){render();toast(`已依新規則重新計算 ${n} 張圖`)}
@@ -1474,7 +1475,7 @@ function viewDraw(p){
       <p class="muted small" style="margin:0">匯入後軟體會自動判斷樓層、圖層，直接算出模板面積與混凝土體積。可一次選多個檔案。</p>
       ${p.drawings.length?'<button class="btn" data-act="recalc">用目前規則重新計算全部圖檔</button><p class="muted small" style="margin:0">App 更新後會自動重算一次，不必重新匯入；手動新增的構件會保留。</p>':''}
     </div>
-    <div class="dlist">${p.drawings.length?p.drawings.map(x=>`<button class="ditem" data-act="dwg" data-id="${x.id}" aria-current="${x.id===S.dwg}"><b>${esc(x.name)}</b><span class="muted small">樓層 ${esc(x.floors.join('、')||'—')}</span>${x.recog?`<span class="small">${stat(x)}</span>`:''}</button>`).join(''):'<div class="empty small">尚未匯入圖檔</div>'}</div>
+    <div class="dlist">${p.drawings.length?p.drawings.map(x=>`<button class="ditem" data-act="dwg" data-id="${x.id}" aria-current="${x.id===S.dwg}"><b>${esc(x.name)}</b><span class="muted small">樓層 ${esc(x.floors.join('、')||'—')}</span>${x.lost?'<span class="small" style="color:#c53030">圖檔資料遺失，請重新匯入</span>':''}${x.recog?`<span class="small">${stat(x)}</span>`:''}</button>`).join(''):'<div class="empty small">尚未匯入圖檔</div>'}</div>
   </aside>
   <section class="stack" style="min-width:0">
   ${d?`
@@ -1871,7 +1872,7 @@ function checks(p,f,b){
 }
 function plotData(p,f,b){
   const sl=p.slabs.filter(s=>s.floor===f&&s.bldg===b),ms=p.members.filter(m=>m.floor===f&&m.bldg===b);
-  const it=[];
+  let it=[];
   sl.forEach(s=>{if(s.geo)it.push({k:'版',src:s,pts:s.geo.pts,lab:s.code,sub:`${f2(slabCalc(s).real)}㎡`})});
   ms.forEach(m=>{const g=m.geo||[];
     if(m.kind==='pit'){const R4=b=>[[b[0],b[1]],[b[2],b[1]],[b[2],b[3]],[b[0],b[3]]];g.forEach(bb=>it.push({k:'坑',src:m,pts:R4(bb),lab:'電梯坑加深區',sub:`加深 ${fm(m.d)}　${f2(memCalc(m,p).conc)}m³`}));(m.inner||[]).forEach(bb=>it.push({k:'坑內',pts:R4(bb)}))}
@@ -1894,8 +1895,16 @@ function plotData(p,f,b){
   it.forEach(o=>{o.id=o.i!=null&&o.src?inst.get(o.src.id+'|'+o.i)||ids.get(o.src):ids.get(o.src)});
   if(!ms.some(m=>m.type==='柱'))p.drawings.forEach(d=>(d.bldg===b&&d.refCols?.[f]||[]).forEach(c=>it.push({k:'柱',ref:true,pts:c.pts,c:centroid(c.pts),lab:c.code,sub:`${Math.round(num(c.b,0)*100)}×${Math.round(num(c.h,0)*100)}（位置）`})));
   const ck=checks(p,f,b);ck.forEach(c=>{if(c.src){it.filter(o=>o.src===c.src&&(c.i==null||o.i===c.i)).forEach(o=>o.warn=true);c.id=c.i!=null?inst.get(c.src.id+'|'+c.i):ids.get(c.src)}});
-  const pts=it.flatMap(o=>o.pts||[o.a,o.b]);
-  const bb=pts.length?bbox(pts):null;
+  // 圖範圍只取平面主體：離柱／版群太遠的零星構件（舊辨識殘留的圖例符號等）不納入範圍，改列入檢查，否則整張圖會縮成一小點
+  const ptsOf=o=>o.pts||[o.a,o.b];
+  let core=it.filter(o=>o.k==='柱'||o.k==='版');if(!core.length)core=it;
+  let bb=core.length?bbox(core.flatMap(ptsOf)):null;
+  if(bb){const dg=Math.hypot(bb[2]-bb[0],bb[3]-bb[1]),lim=Math.max(25,dg*0.6),far=[];
+    const dist=q=>Math.hypot(Math.max(bb[0]-q[2],q[0]-bb[2],0),Math.max(bb[1]-q[3],q[1]-bb[3],0));
+    it.forEach(o=>{const q=bbox(ptsOf(o));if(dist(q)>lim){o.far=true;far.push(o)}});
+    const keep=it.filter(o=>!o.far);bb=bbox(keep.flatMap(ptsOf));
+    if(far.length){const names=[...new Set(far.map(o=>o.id||o.lab).filter(Boolean))];ck.push({msg:`有 ${far.length} 個構件離平面主體超過 ${Math.round(lim)} m，未畫入圖中（${names.slice(0,6).join('、')}${names.length>6?'…':''}）；若為誤判請刪除，或重新匯入圖檔`})}}
+  it=it.filter(o=>!o.far);
   return {sl,ms,it,bb,ids,ck};
 }
 function band(a,b,w){const dx=b[0]-a[0],dy=b[1]-a[1],L=Math.hypot(dx,dy)||1,nx=-dy/L*w/2,ny=dx/L*w/2;return [[a[0]+nx,a[1]+ny],[b[0]+nx,b[1]+ny],[b[0]-nx,b[1]-ny],[a[0]-nx,a[1]-ny]]}
