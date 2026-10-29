@@ -1983,13 +1983,15 @@ const plotPZ={vb:null,key:null,svg:null,box:null,
 function viewPlot(p){
   const b=S.plotB&&p.bldgs.includes(S.plotB)?S.plotB:p.bldgs[0],fl=plotFloors(p,b);
   if(!fl.length)return `<div class="panel"><div class="empty">還沒有任何構件，先到「圖檔匯入與辨識」匯入圖檔。</div></div>`;
-  const f=S.plotF&&fl.includes(S.plotF)?S.plotF:fl[0];
+  // 預設樓層取第一個畫得出圖的（只有無位置的手動構件的樓層排後面）
+  const f=S.plotF&&fl.includes(S.plotF)?S.plotF:(fl.find(x=>plotData(p,x,b).bb)||fl[0]);
+  const svg=plotSVG(p,f,b,{warn:true})||`<div class="empty small">本層構件沒有圖面位置（手動新增或無法定位），畫不出導引圖；算式表仍在下方。</div>`;
   return `<div class="stack">
   <div class="row" style="justify-content:space-between"><div class="row"><label class="small muted" for="plotB">棟別</label><select id="plotB" data-filter="plotB">${opts(p.bldgs,b)}</select><label class="small muted" for="plotF">樓層</label><select id="plotF" data-filter="plotF">${opts(fl,f)}</select>
    <button class="btn sm" data-act="plotz" data-k="-1" aria-label="縮小">−</button><button class="btn sm" data-act="plotz" data-k="1" aria-label="放大">＋</button><button class="btn sm" data-act="plotz" data-k="0">全圖</button></div>
   <div class="row">${standalone?`<button class="btn" data-act="plotprint">列印／存成 PDF（全部樓層）</button><button class="btn" data-act="plotpng">下載本層圖檔 PNG</button><button class="btn" data-act="plotdxf">下載 DXF（疊原圖比對）</button>`:`<span class="small muted">在網站版可列印成 PDF、下載 PNG 與 DXF。</span>`}</div></div>
   <div class="note small">圖可用兩指縮放、拖曳平移（電腦用滾輪）。橘色「版1、柱1、樑1、牆1」是計算編號，對照下方算式表的同一編號檢核；同編號多處表示同一列數量。紅色樑＝邊樑／周邊單面，藍色樑＝中間樑；牆含女兒牆。DXF 用原圖單位與座標，可直接疊在結構圖上比對。</div>
-  <div class="plot-wrap" id="plotBox" data-key="${esc(p.id+'|'+b+'|'+f)}">${plotSVG(p,f,b,{warn:true})}</div>
+  <div class="plot-wrap" id="plotBox" data-key="${esc(p.id+'|'+b+'|'+f)}">${svg}</div>
   ${ckList(p,f,b)}
   <div class="scroll">${plotTable(p,f,b)}</div></div>`;
 }
