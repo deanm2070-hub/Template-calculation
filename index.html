@@ -899,9 +899,11 @@ function archStory(s,all){
   return titleFloors(s);
 }
 function titleFloors(s){let f=parseFloors(s);if(f.includes('F')&&f.length>1)f=f.filter(x=>x!=='F');return f}
-function findPlanTitles(ents){
+// role='arch'：只用建築平面圖的圖名（建照套圖同時含結構與建築平面，結構平面已有專用結構圖時，本檔只當建築圖用）
+function findPlanTitles(ents,role){
   const c=ents.texts.filter(t=>t.s.length<=26&&/平面圖|PLAN/i.test(t.s)&&!/說明|為準|詳|NOTE|檢討|綠化|示意|面積|剖面|立面/i.test(t.s)).map(t=>({t,fl:titleFloors(t.s)})).filter(x=>x.fl.length);
-  const st=c.filter(x=>/結構|FRAMING|STRUCT/i.test(x.t.s));const pool=st.length?st:c;
+  const st=c.filter(x=>/結構|FRAMING|STRUCT/i.test(x.t.s)),ar=c.filter(x=>!st.includes(x));const pool=role==='arch'?ar:(st.length?st:c);
+  findPlanTitles.mixed=st.length>0&&ar.length>0;
   const g=new Map();pool.forEach(x=>{const k=Math.round(x.t.h*10)/10;if(!g.has(k))g.set(k,[]);g.get(k).push(x)});
   let best=[];g.forEach(v=>{if(v.length>best.length||(v.length===best.length&&v[0].t.h>(best[0]?.t.h||0)))best=v});
   return best.map(x=>{const w=[...x.t.s].reduce((a,ch)=>a+(/[　-鿿＀-￯]/.test(ch)?1:0.6),0)*x.t.h;return {s:x.t.s,fl:x.fl,x:x.t.x,cx:x.t.x+w/2,y:x.t.y,h:x.t.h}});
@@ -930,8 +932,12 @@ function autoProcess(P,d,ents){
   const lv=ents.texts.some(t=>/剖面|立面/.test(t.s))?readLevels(ents).filter(r=>r.h!=null&&r.h>=2&&r.h<=8):[];let nLv=0;
   lv.forEach(r=>{let n=normFloor(r.name,P.floors);if(!n){const pf=parseFloors(r.name);if(pf.length===1){ensureFloors(P,pf);n=pf[0]}}const f=P.floors.find(x=>x.name===n);if(f){f.h=r.h;nLv++}});
   const det=detectFloors(d.name,ents);
-  const titles=findPlanTitles(ents);
-  d.kind=drawKind(d.name,ents,titles);
+  let titles=findPlanTitles(ents);d.mixed=findPlanTitles.mixed;
+  // 建照套圖（同檔含結構＋建築平面）：專案已有專用結構圖時，結構平面視為重複，本檔只用建築平面
+  const dupOf=d.mixed?P.drawings.find(x=>x.id!==d.id&&x.kind==='struct'&&!x.mixed&&x.bldg===d.bldg&&(x.floors||[]).length):null;
+  d.dupNote=dupOf?`結構平面與「${dupOf.name}」重複，本檔只用建築平面圖`:'';
+  if(dupOf)titles=findPlanTitles(ents,'arch');
+  d.kind=dupOf?'arch':drawKind(d.name,ents,titles);
   // 結構平面圖畫的是該樓板「下方」樓層的柱、樑、版：二層結構平面 → 1 樓，屋突一層 → 頂樓，基礎及一層 → 基礎
   const st=d.kind==='struct',tStr=titles.map(t=>t.s);
   const aux=d.kind==='sched'||d.kind==='sect';
@@ -1347,10 +1353,11 @@ function reconcile(P){
   const stFl=new Set(P.members.filter(m=>m.type==='柱'&&!m.held&&st.some(d=>d.id===m.src)).map(m=>m.floor));
   const shc={};const shortOf=(d,f)=>shc[d.id+'|'+f]||(shc[d.id+'|'+f]=(d.wraw||[]).filter(w=>w.floor===f).flatMap(w=>(w.geo||[]).filter(g=>Math.hypot(g[1][0]-g[0][0],g[1][1]-g[0][1])<1.2).map(g=>({g,c:[(g[0][0]+g[1][0])/2,(g[0][1]+g[1][1])/2]}))));
   const rcMin=num(P.rcWall,0.15)-0.005,archFl=new Set(P.drawings.filter(d=>d.kind==='arch').flatMap(d=>d.floors||[]));
+  const alc={};const archAligned=f=>{if(!(f in alc))alc[f]=P.drawings.some(d=>d.kind==='arch'&&(d.floors||[]).includes(f)&&(!st.length||shift(d,f,f)));return alc[f]};
   const mid=g=>[(g[0][0]+g[1][0])/2,(g[0][1]+g[1][1])/2],inFp=(fp,c)=>!fp||(c[0]>=fp[0]&&c[1]>=fp[1]&&c[0]<=fp[2]&&c[1]<=fp[3]);
   P.drawings.forEach(d=>{d.wdup=0;d.wout=0;d.wthin=0;d.chk=[];(d.wraw||[]).forEach(w=>{
-    // 牆以建築圖為準（結構圖上的牆多為套繪底圖）；專案沒有建築圖時才用結構圖的牆
-    if(d.kind==='struct'&&archFl.size)return;
+    // 牆以建築圖為準（結構圖上的牆多為套繪底圖）；專案沒有建築圖、或該層建築圖對不到結構柱位（建築圖沒辨識出柱）時才用結構圖的牆
+    if(d.kind==='struct'&&archFl.size&&!(archFl.has(w.floor)&&!archAligned(w.floor)))return;
     if(num(w.b,0.2)<rcMin){d.wthin=r2(d.wthin+num(w.L,0));
       // 厚度接近 RC 牆（13cm 以上）卻被當磚牆的：結構範圍內、1m 以上的列入辨識檢查；12cm 以下是一般磚牆不列
       const f=w.floor,tb=f&&num(w.b,0)>=0.125?shift(d,f,f)||(st.length?null:[0,0]):null;if(!tb)return;const fp=d.kind==='arch'?fpOf(d,f):null;
@@ -1365,6 +1372,8 @@ function reconcile(P){
     let fp=null;if(d.kind==='arch'){fp=fpOf(d,f);}
     // 有結構圖但這層沒有任何結構柱（例如最上層屋突屋頂）：牆不計
     if(d.kind==='arch'&&st.length&&!stFl.has(f)){d.wout=r2(d.wout+num(w.L,0));return}
+    // 建築圖對不到結構柱位（本圖沒辨識出柱）：牆無法定位，不採用，該層改用結構圖的牆
+    if(d.kind==='arch'&&st.length&&!tb){d.wout=r2(d.wout+num(w.L,0));return}
     const cs=tb&&hPar?ceil(f).map(q=>q.map(v=>[v[0]-tb[0],v[1]-tb[1]])):[];
     const covered=p=>cs.some(q=>inPoly(p,q)||q.some((v,i)=>segDist(p,v,q[(i+1)%q.length])<0.35));
     const out=new Map();const shortS=shortOf(d,f);
@@ -1424,11 +1433,15 @@ function render(){
 }
 /* 計算規則版本：App 更新後，用手機裡存的圖檔依新規則重算（等同重新匯入，手動構件保留） */
 const calcVer=()=>{try{return BUILD&&!BUILD.startsWith('__')?BUILD:'r22'}catch(e){return 'r22'}};
+// 建照套圖先匯入、專用結構圖後匯入：套圖已照結構圖算過一次，改成只用建築平面重算
+async function fixDupStruct(p){
+  for(const d of p.drawings.filter(x=>x.mixed&&x.kind==='struct')){if(!p.drawings.some(x=>x.id!==d.id&&x.kind==='struct'&&!x.mixed&&x.bldg===d.bldg&&(x.floors||[]).length))continue;const ents=await entGet(d.id);if(ents)autoProcess(p,d,ents)}
+}
 async function recalcAll(p){
   if(recalcAll.busy)return;recalcAll.busy=true;let n=0;
   try{toast('正在依新規則重新計算圖檔…');await new Promise(r=>setTimeout(r,60));
     const lost=[];for(const d of p.drawings.slice()){const ents=await entGet(d.id);if(!ents){lost.push(d.name);d.lost=true;continue}d.lost=false;autoProcess(p,d,ents);n++}
-    p.calcVer=calcVer();saveAll();
+    await fixDupStruct(p);p.calcVer=calcVer();saveAll();
     if(lost.length)setTimeout(()=>toast(`「${lost.join('、')}」的圖檔資料已不在此裝置，無法用新規則重算，請重新匯入該圖檔`,6000),400);
   }catch(e){toast('重新計算失敗：'+(e.message||e))}
   finally{recalcAll.busy=false}
@@ -1484,7 +1497,7 @@ function viewDraw(p){
       <p class="muted small" style="margin:0">匯入後軟體會自動判斷樓層、圖層，直接算出模板面積與混凝土體積。可一次選多個檔案。</p>
       ${p.drawings.length?'<button class="btn" data-act="recalc">用目前規則重新計算全部圖檔</button><p class="muted small" style="margin:0">App 更新後會自動重算一次，不必重新匯入；手動新增的構件會保留。</p>':''}
     </div>
-    <div class="dlist">${p.drawings.length?p.drawings.map(x=>`<button class="ditem" data-act="dwg" data-id="${x.id}" aria-current="${x.id===S.dwg}"><b>${esc(x.name)}</b><span class="muted small">樓層 ${esc(x.floors.join('、')||'—')}</span>${x.lost?'<span class="small" style="color:#c53030">圖檔資料遺失，請重新匯入</span>':''}${x.recog?`<span class="small">${stat(x)}</span>`:''}</button>`).join(''):'<div class="empty small">尚未匯入圖檔</div>'}</div>
+    <div class="dlist">${p.drawings.length?p.drawings.map(x=>`<button class="ditem" data-act="dwg" data-id="${x.id}" aria-current="${x.id===S.dwg}"><b>${esc(x.name)}</b><span class="muted small">樓層 ${esc(x.floors.join('、')||'—')}</span>${x.lost?'<span class="small" style="color:#c53030">圖檔資料遺失，請重新匯入</span>':''}${x.dupNote?`<span class="small muted">${esc(x.dupNote)}</span>`:''}${x.recog?`<span class="small">${stat(x)}</span>`:''}</button>`).join(''):'<div class="empty small">尚未匯入圖檔</div>'}</div>
   </aside>
   <section class="stack" style="min-width:0">
   ${d?`
@@ -2120,6 +2133,7 @@ async function importFiles(files){
   }
   // 門窗表後匯入：已匯入的建築平面圖重算（門窗尺寸才扣得到）
   if(newSch)for(const d of p.drawings.filter(x=>x.kind==='arch')){const ents=await entGet(d.id);if(ents)autoProcess(p,d,ents)}
+  await fixDupStruct(p);
   p.calcVer=calcVer();saveAll();render();
   if(tot.n)toast(`已計算 ${tot.n} 張圖：版 ${tot.s} 筆、柱 ${tot.c}、樑段 ${tot.b}、牆段 ${tot.w}`);
 }
@@ -2260,7 +2274,7 @@ function download(name,data,type){const a=document.createElement('a');a.href=URL
 })();
 
 /* 新版本提示：網站版才有，按「更新」才重新載入 */
-const BUILD='20261029160752';
+const BUILD='20261029161543';
 function checkUpdate(){
   if(!BUILD||BUILD.startsWith('__')||!/^https?:/.test(location.protocol))return;
   fetch('version.json?t='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{
