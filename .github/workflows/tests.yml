@@ -1,0 +1,41 @@
+name: 自動化測試
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: 測試
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      # 實際專案圖檔（使用者的真實案子）不放公開 repo。
+      # 若 repo 有加密的圖檔包，且設定了金鑰 ZHUBEN_DRAWINGS_KEY，就解開來跑實際專案測試，找不到圖檔即失敗。
+      - name: 準備實際專案圖檔
+        env:
+          KEY: ${{ secrets.ZHUBEN_DRAWINGS_KEY }}
+        run: |
+          if [ -n "$KEY" ] && [ -f tests/fixtures/drawings.tar.gz.enc ]; then
+            mkdir -p tests/drawings
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:KEY -in tests/fixtures/drawings.tar.gz.enc | tar xz -C tests/drawings
+            echo "ZHUBEN_REQUIRE_DRAWINGS=1" >> "$GITHUB_ENV"
+          else
+            echo "::warning::沒有實際專案圖檔，本次只跑計算規則、範例圖與部署檔測試"
+          fi
+      - run: npm test

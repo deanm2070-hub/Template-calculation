@@ -3,6 +3,7 @@
 
   python3 build.py            -> index.html (GitHub Pages / standalone, installable to home screen)
   python3 build.py artifact   -> dist/artifact.html (body-only page for the Claude artifact viewer)
+  python3 build.py test       -> dist/test.html (same as index.html, fixed build id, for the automated tests)
 """
 import base64, json, os, subprocess, sys, time
 
@@ -34,10 +35,16 @@ def build(target):
                 '<link rel="icon" href="assets/icon-192.png">\n'
                 '<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}</style>\n')
         s = head + s + '</html>\n'
-        build_id = time.strftime('%Y%m%d%H%M%S')
-        s = s.replace("const BUILD='__BUILD__';", "const BUILD='%s';" % build_id)
-        open(os.path.join(ROOT, 'version.json'), 'w').write(json.dumps({'v': build_id}) + '\n')
-        out = os.path.join(ROOT, 'index.html')
+        if target == 'test':
+            # 自動化測試用：內容跟 index.html 相同，只是版本號固定、不改 version.json
+            s = s.replace("const BUILD='__BUILD__';", "const BUILD='test';")
+            out = os.path.join(ROOT, 'dist/test.html')
+            os.makedirs(os.path.dirname(out), exist_ok=True)
+        else:
+            build_id = time.strftime('%Y%m%d%H%M%S')
+            s = s.replace("const BUILD='__BUILD__';", "const BUILD='%s';" % build_id)
+            open(os.path.join(ROOT, 'version.json'), 'w').write(json.dumps({'v': build_id}) + '\n')
+            out = os.path.join(ROOT, 'index.html')
     open(out, 'w').write(s)
     print(out, len(s))
 

@@ -40,6 +40,18 @@ python3 build.py            # 產生 index.html（GitHub Pages／單機版）
 python3 build.py artifact   # 產生 dist/artifact.html（Claude Artifact 版）
 ```
 
+## 自動化測試與驗收標準
+
+算得對的定義寫在 [`docs/驗收標準.md`](docs/驗收標準.md)，每一條都有對應的自動化測試。修改程式前先寫驗收標準與測試，測試全部通過才能合併（流程見 [`CLAUDE.md`](CLAUDE.md)）。
+
+```bash
+npm ci
+npx playwright install chromium
+npm test
+```
+
+每個 PR 都會由 GitHub Actions（`.github/workflows/tests.yml`）自動執行。
+
 ## 第三方元件
 
 `vendor/libredwg-web/` 為 [@mlightcad/libredwg-web](https://github.com/mlightcad/libredwg-web) 0.7.17（WebAssembly 版 [LibreDWG](https://www.gnu.org/software/libredwg/)），授權為 **GPL-3.0**。對外散布含此元件的軟體時，須依 GPL-3.0 提供原始碼。
