@@ -929,7 +929,7 @@ function autoProcess(P,d,ents){
   {const u0=UNIT[ents.insunits]||guessUnit(ents.ext),un=v=>v===0.001?'mm':v===0.01?'cm':'m';const tu=textUnit(ents);d.unit=tu||doorUnit(ents,u0);d.unitNote=d.unit!==u0?`${UNIT[ents.insunits]?'圖檔標示單位為 '+un(u0):'圖檔未標示單位'}，依${tu?'文字大小':'門的大小'}判斷實際是用 ${un(d.unit)} 繪製，已自動換算`:''}
   const named=guessRoles(ents.layers);d.roles=Object.assign(named,inferRoles(ents,d.unit,named));
   // 層高只從剖面圖讀（平面圖上的 FL±… 是室內地坪高差，不是層高），且要在 2～8m 之間
-  const lv=ents.texts.some(t=>/剖面|立面/.test(t.s))?readLevels(ents).filter(r=>r.h!=null&&r.h>=2&&r.h<=8):[];let nLv=0;
+  const lv=ents.texts.some(t=>/剖面|立面/.test(t.s))?readLevels(ents,d.unit).filter(r=>r.h!=null&&r.h>=2&&r.h<=8):[];let nLv=0;
   lv.forEach(r=>{let n=normFloor(r.name,P.floors);if(!n){const pf=parseFloors(r.name);if(pf.length===1){ensureFloors(P,pf);n=pf[0]}}const f=P.floors.find(x=>x.name===n);if(f){f.h=r.h;nLv++}});
   const det=detectFloors(d.name,ents);
   let titles=findPlanTitles(ents);d.mixed=findPlanTitles.mixed;
@@ -979,6 +979,15 @@ function readOpenSch(ents,k){
   const T=ents.texts,sz=/^(\d+(?:\.\d+)?)\s*[xX×]\s*(\d+(?:\.\d+)?)\s*(\S*[門窗]\S*)$/,tg=/^[A-Z]{1,3}\d{1,2}[A-Z]?$/,out={};
   T.forEach(t=>{const mm=String(t.s).trim().match(sz);if(!mm)return;let best=null,bd=2.0/k;T.forEach(o=>{if(!tg.test(o.s))return;const dx=t.x-o.x,dy=Math.abs(t.y-o.y);if(dx<=0||dy>0.4/k)return;if(dx<bd){bd=dx;best=o}});
     if(!best||out[best.s])return;let w=+mm[1],h=+mm[2];if(h>10){w/=100;h/=100}out[best.s]={w:r2(w),h:r2(h),name:mm[3]}});
+  // 表格寫法：「門窗編號」列放編號，下方「品名」「尺寸/cm」列依欄位 x 對齊；複合尺寸 210x200+196.5x200 寬相加
+  T.filter(t=>/^門窗編號$/.test(String(t.s).trim())).forEach(L=>{const row=y=>T.filter(t=>Math.abs(t.y-y)<=L.h*0.8&&t.x>L.x+L.h);
+    const tags=row(L.y).filter(t=>tg.test(String(t.s).trim()));if(!tags.length)return;
+    const below=rx=>T.filter(t=>rx.test(String(t.s).trim())&&Math.abs(t.x-L.x)<L.h*3&&t.y<L.y&&L.y-t.y<L.h*40).sort((a,b)=>b.y-a.y)[0];
+    const szL=below(/^尺寸/),nmL=below(/^品名/);if(!szL)return;const szs=row(szL.y),nms=nmL?row(nmL.y):[];
+    const xs=tags.map(t=>t.x).sort((a,b)=>a-b),gap=xs.length>1?Math.min(...xs.slice(1).map((x,i)=>x-xs[i])):10*L.h,tol=Math.max(gap/2,L.h*4);
+    tags.forEach(tagT=>{const tag=String(tagT.s).trim();if(out[tag])return;const near=arr=>arr.filter(t=>Math.abs(t.x-tagT.x)<tol).sort((a,b)=>Math.abs(a.x-tagT.x)-Math.abs(b.x-tagT.x))[0];
+      const sz=near(szs);if(!sz)return;let w=0,h=0;for(const m of String(sz.s).matchAll(/(\d+(?:\.\d+)?)\s*[xX×*]\s*(\d+(?:\.\d+)?)/g)){w+=+m[1];h=Math.max(h,+m[2])}if(!w||!h)return;if(h>10){w/=100;h/=100}
+      const nm=near(nms);out[tag]={w:r2(w),h:r2(h),name:nm?String(nm.s).trim():(/^D(?!W)/.test(tag)?'門':'窗')}})});
   // 另一種寫法：「W1a : 120*130 , W1b : 160*130」「DW1：160x240」
   T.forEach(t=>{for(const m of String(t.s).matchAll(/(?:^|[\s,，、;；])([A-Z]{1,3}\d{1,2}[A-Za-z]?)\s*[:：]\s*(\d+(?:\.\d+)?)\s*[*xX×]\s*(\d+(?:\.\d+)?)/g)){if(out[m[1]])continue;let w=+m[2],h=+m[3];if(h>10){w/=100;h/=100}out[m[1]]={w:r2(w),h:r2(h),name:/^D(?!W)/.test(m[1])?'門':'窗'}}});
   return out;
@@ -1097,7 +1106,7 @@ function countStairs(ents,unit){
   return +Object.entries(m).sort((a,b)=>b[1]-a[1]||b[0]-a[0])[0][0]}
 function stairN(P){return P.drawings.map(d=>d.stairN).find(x=>x>0)||1}
 /* 剖面／立面圖：讀取樓層標高 */
-function readLevels(ents){
+function readLevels(ents,unit){
   const FL=/^(B\d+FL?|\d+M?FL?|R\d*FL?|R\d*|PR\d*F?L?)$/i, EL=/([±+\-])\s*(\d+(?:\.\d+)?)/;
   const both=/^(B\d+F|\d+M?F|R\d*F?|RF|PR\d*F?)\s*(?:L|FL|EL\.?)?\s*([±+\-])\s*(\d+(?:\.\d+)?)/i;
   const res=[];const T=ents.texts;
@@ -1108,6 +1117,10 @@ function readLevels(ents){
     T.filter(t=>FL.test(t.s.trim())).forEach(t=>{let best=null,bd=Infinity;els.forEach(e=>{const dy=Math.abs(e.y-t.y);if(dy>Math.max(t.h,e.h)*2.5)return;const dd=dy*10+Math.abs(e.x-t.x)*0.01;if(dd<bd){bd=dd;best=e}});
       if(best){const m=best.s.match(EL);res.push({name:t.s.trim().toUpperCase(),el:val(m[1],m[2]),y:t.y})}});
   }
+  // 立面／剖面只標樓層名（1F、2F、RF）沒標高程：同一欄位（同 x、同字高）標籤的垂直位置差就是層高
+  if(new Set(res.map(r=>r.name)).size<2&&unit){res.length=0;const cols=[];T.filter(t=>FL.test(t.s.trim())).forEach(t=>{let c=cols.find(c=>Math.abs(c.x-t.x)<t.h*3&&Math.abs(c.h-t.h)<t.h*0.3);if(!c){c={x:t.x,h:t.h,ts:[]};cols.push(c)}c.ts.push(t)});
+    const best=cols.filter(c=>new Set(c.ts.map(t=>t.s.trim().toUpperCase())).size>=2).sort((a,b)=>b.ts.length-a.ts.length)[0];
+    if(best)best.ts.forEach(t=>res.push({name:t.s.trim().toUpperCase(),el:t.y*unit,y:t.y,geo:true}))}
   const seen=new Map();res.forEach(r=>{if(!seen.has(r.name))seen.set(r.name,r)});
   let arr=[...seen.values()];
   // 標高單位可能是 m、cm（+435）或 mm（+4200）：取讓樓高中位數落在 2～8m 的換算
@@ -2274,7 +2287,7 @@ function download(name,data,type){const a=document.createElement('a');a.href=URL
 })();
 
 /* 新版本提示：網站版才有，按「更新」才重新載入 */
-const BUILD='20261029161543';
+const BUILD='20261105015731';
 function checkUpdate(){
   if(!BUILD||BUILD.startsWith('__')||!/^https?:/.test(location.protocol))return;
   fetch('version.json?t='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{
