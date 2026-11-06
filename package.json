@@ -1,0 +1,13 @@
+{
+  "name": "zhuben-formwork-tests",
+  "private": true,
+  "description": "築本模板工程計算：自動化測試",
+  "scripts": {
+    "test": "node --test --test-concurrency=1 \"tests/*.test.js\"",
+    "test:rules": "node --test tests/rules.test.js",
+    "test:update": "node -e \"process.env.ZHUBEN_UPDATE='1';require('child_process').execSync('node --test --test-concurrency=1 \\\"tests/*.test.js\\\"',{stdio:'inherit'})\""
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}
